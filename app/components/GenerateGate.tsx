@@ -52,7 +52,7 @@ export function GenerateGate() {
 
           <div className="flex flex-col gap-2">
             <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">
-              Сегодняшняя пачка ещё не готова
+              Сегодняшние твиты ещё не готовы
             </h2>
             <p className="text-sm text-zinc-600 max-w-md leading-relaxed">
               Нажми кнопку, и я соберу свежие AI/IT новости, отберу твиты из ленты
