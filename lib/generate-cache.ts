@@ -1,7 +1,7 @@
 import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { list, put } from "@vercel/blob";
+import { get, put } from "@vercel/blob";
 import { GENERATE_SCHEMA_VERSION, type GenerateResult } from "./generate";
 
 const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
@@ -38,27 +38,22 @@ function validate(
 
 async function readBlob(dayLabel: string): Promise<GenerateResult | null> {
   if (!BLOB_TOKEN) return null;
-  const pathname = blobPathFor(dayLabel);
-  const { blobs } = await list({
-    prefix: pathname,
+  const result = await get(blobPathFor(dayLabel), {
+    access: "private",
     token: BLOB_TOKEN,
-    limit: 1,
+    useCache: false,
   });
-  const match = blobs.find((b) => b.pathname === pathname);
-  if (!match) return null;
-  const res = await fetch(match.url, { cache: "no-store" });
-  if (!res.ok) return null;
-  return (await res.json()) as GenerateResult;
+  if (!result || result.statusCode !== 200) return null;
+  return (await new Response(result.stream).json()) as GenerateResult;
 }
 
 async function writeBlob(result: GenerateResult): Promise<void> {
   if (!BLOB_TOKEN) return;
   await put(blobPathFor(result.day), JSON.stringify(result), {
-    access: "public",
+    access: "private",
     addRandomSuffix: false,
     allowOverwrite: true,
     contentType: "application/json",
-    cacheControlMaxAge: 0,
     token: BLOB_TOKEN,
   });
 }
