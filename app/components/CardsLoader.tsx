@@ -2,24 +2,33 @@
 
 import { useEffect, useState } from "react";
 
-const STAGES = [
+const DEFAULT_STAGES = [
   "Тащу сегодняшние твиты",
   "Отбираю самое сочное",
   "Пишу варианты ответов",
   "Шлифую и почти готово",
 ];
-const STAGE_MS = 16000;
+const DEFAULT_STAGE_MS = 16000;
 
-export function CardsLoader() {
+export function CardsLoader({
+  stages = DEFAULT_STAGES,
+  stageMs = DEFAULT_STAGE_MS,
+  hint,
+}: {
+  stages?: string[];
+  stageMs?: number;
+  hint?: string;
+} = {}) {
   const [stage, setStage] = useState(0);
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     const start = Date.now();
     setElapsed(0);
+    setStage(0);
     const stageTimer = window.setInterval(() => {
-      setStage((s) => (s < STAGES.length - 1 ? s + 1 : s));
-    }, STAGE_MS);
+      setStage((s) => (s < stages.length - 1 ? s + 1 : s));
+    }, stageMs);
     const tickTimer = window.setInterval(() => {
       setElapsed(Math.floor((Date.now() - start) / 1000));
     }, 250);
@@ -27,7 +36,7 @@ export function CardsLoader() {
       window.clearInterval(stageTimer);
       window.clearInterval(tickTimer);
     };
-  }, []);
+  }, [stages, stageMs]);
 
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const ss = String(elapsed % 60).padStart(2, "0");
@@ -49,14 +58,15 @@ export function CardsLoader() {
           <Spinner />
           <div className="flex flex-col gap-2">
             <div className="text-base font-medium text-zinc-800">
-              {STAGES[stage]}…
+              {stages[stage]}…
             </div>
             <div className="text-xs text-zinc-500 font-mono">
               {mm}:{ss}
             </div>
           </div>
           <div className="text-xs text-zinc-400 max-w-xs leading-relaxed">
-            Первая генерация дня идёт через Opus и веб-поиск, обычно 30–90 секунд. Дальше всё кэшируется до конца дня.
+            {hint ??
+              "Первая генерация дня идёт через Opus и веб-поиск, обычно 30–90 секунд. Дальше всё кэшируется до конца дня."}
           </div>
         </div>
         <style>{`

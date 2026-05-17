@@ -1,6 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { POSTS_PERSONA_PROMPT, REPLY_PERSONA_PROMPT } from "./persona";
+import { REPLY_PERSONA_PROMPT } from "./persona";
 import { readCache, writeCache } from "./generate-cache";
 import {
   fetchListTweets,
@@ -19,18 +19,7 @@ export type GeneratedReply = {
   variants: [string, string, string];
 };
 
-export type PostSource = {
-  url: string;
-  title: string;
-  summary: string;
-};
-
-export type GeneratedPost = {
-  text: string;
-  sources: PostSource[];
-};
-
-export const GENERATE_SCHEMA_VERSION = 4;
+export const GENERATE_SCHEMA_VERSION = 5;
 
 export type GenerateResult = {
   schemaVersion: number;
@@ -39,14 +28,12 @@ export type GenerateResult = {
   fetchedCount: number;
   selectedCount: number;
   replies: GeneratedReply[];
-  posts: GeneratedPost[];
   generatedAt: string;
   cached: boolean;
 };
 
 const X_LIST_ID = "2055761051199922416";
 const OPUS_MODEL = "claude-opus-4-7";
-const SONNET_MODEL = "claude-sonnet-4-6";
 const HAIKU_MODEL = "claude-haiku-4-5";
 const MAX_FETCH = 40;
 const REPLY_COUNT = 20;
@@ -85,64 +72,6 @@ const REPLIES_SCHEMA = {
     },
   },
   required: ["replies"],
-  additionalProperties: false,
-} as const;
-
-const NEWS_SCHEMA = {
-  type: "object",
-  properties: {
-    news: {
-      type: "array",
-      description:
-        "Real AI/IT news stories found via web_search. URLs MUST come from search results — never fabricate.",
-      items: {
-        type: "object",
-        properties: {
-          title: { type: "string", description: "Headline of the news story." },
-          url: {
-            type: "string",
-            description: "Canonical article URL from web_search results.",
-          },
-          summary: {
-            type: "string",
-            description:
-              "1–2 sentence plain-English summary a non-technical reader can understand. Explain jargon (e.g. instead of 'Mojo 0.7 released', write 'Modular released Mojo 0.7, a programming language built for AI/ML workloads').",
-          },
-        },
-        required: ["title", "url", "summary"],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ["news"],
-  additionalProperties: false,
-} as const;
-
-const POSTS_SCHEMA = {
-  type: "object",
-  properties: {
-    posts: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          text: {
-            type: "string",
-            description: "The post text (≤ 280 chars). When newsIndices is non-empty the matching URL(s) MUST appear inline in this text.",
-          },
-          newsIndices: {
-            type: "array",
-            items: { type: "integer" },
-            description:
-              "0-based indices into the provided `news` array — the stories this post references. REQUIRED whenever the post mentions specific tools, launches, people, or events. Use [] only for pure abstract takes.",
-          },
-        },
-        required: ["text", "newsIndices"],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ["posts"],
   additionalProperties: false,
 } as const;
 
@@ -272,115 +201,6 @@ ${corpus}`;
   return out;
 }
 
-type NewsItem = { title: string; url: string; summary: string };
-
-async function gatherNews(
-  client: Anthropic,
-  dayLabel: string,
-): Promise<NewsItem[]> {
-  const userPrompt = `Today is ${dayLabel}. Use web_search 3–4 times to find the most newsworthy AI and IT stories from the last 24–72 hours from real news sources (TechCrunch, The Verge, Ars Technica, Bloomberg, Reuters, official company blogs, Hacker News front page). Cover a mix: model launches, product releases, funding/M&A, infra, dev tooling, notable research, industry drama.
-
-Return 6–10 distinct stories. For each, give the headline, the URL exactly as it appears in the search result, and a 1–2 sentence plain-English summary that explains jargon so a non-technical reader can follow (e.g. instead of "Mojo 0.7 released", write "Modular released Mojo 0.7, a programming language built for AI/ML workloads").
-
-All URLs MUST come directly from your web_search results — do not invent.`;
-
-  const response = await client.messages.parse({
-    model: SONNET_MODEL,
-    max_tokens: 4096,
-    output_config: {
-      format: { type: "json_schema", schema: NEWS_SCHEMA },
-    },
-    tools: [
-      {
-        type: "web_search_20260209",
-        name: "web_search",
-        max_uses: 4,
-      },
-    ],
-    messages: [{ role: "user", content: userPrompt }],
-  });
-
-  const parsed = response.parsed_output as { news: NewsItem[] } | null;
-  if (!parsed) throw new Error("Sonnet news gathering returned no parsed output");
-
-  const allowedUrls = new Set<string>();
-  for (const block of response.content) {
-    if (block.type === "web_search_tool_result" && Array.isArray(block.content)) {
-      for (const r of block.content) {
-        if (r.type === "web_search_result") allowedUrls.add(r.url);
-      }
-    }
-  }
-
-  return parsed.news.filter(
-    (n) =>
-      typeof n.url === "string" &&
-      (allowedUrls.size === 0 || allowedUrls.has(n.url)),
-  );
-}
-
-async function writePostsFromNews(
-  client: Anthropic,
-  news: NewsItem[],
-  dayLabel: string,
-): Promise<GeneratedPost[]> {
-  if (news.length === 0) return [];
-
-  const newsCorpus = news
-    .map((n, i) => `[${i}] ${n.title}\n${n.url}\n${n.summary}`)
-    .join("\n\n---\n\n");
-
-  const userPrompt = `Today is ${dayLabel}. Here are the AI/IT news stories that matter right now. Write 6 ORIGINAL standalone posts in your voice riffing on what's actually happening. Different hook for each post.
-
-For each post, return newsIndices — the 0-based indices into the news list of the stories that post is reacting to. If the post mentions ANY specific tool, launch, company, person, or event, attaching the index is REQUIRED — readers may be non-technical and need the link.
-
-CRITICAL — inline links: when a post has newsIndices, the source URL(s) MUST appear inline in the post \`text\`, exactly as in news[i].url. Place it naturally — usually at the end on its own line. One URL is the common case; a second only if the post genuinely riffs on two stories.
-
-Character budget: max 280 chars per post. X auto-shortens any URL to 23 chars — count each URL as 23 plus 1 for the leading space/newline. Keep the prose tight.
-
-NEWS:
-
-${newsCorpus}`;
-
-  const response = await client.messages.parse({
-    model: OPUS_MODEL,
-    max_tokens: 4096,
-    output_config: {
-      format: { type: "json_schema", schema: POSTS_SCHEMA },
-    },
-    system: [
-      {
-        type: "text",
-        text: POSTS_PERSONA_PROMPT,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
-    messages: [{ role: "user", content: userPrompt }],
-  });
-
-  const parsed = response.parsed_output as
-    | { posts: Array<{ text: string; newsIndices: number[] }> }
-    | null;
-  if (!parsed) throw new Error("Opus post writing returned no parsed output");
-
-  return parsed.posts.slice(0, 6).map((p) => {
-    const seen = new Set<number>();
-    const sources: PostSource[] = [];
-    for (const idx of p.newsIndices ?? []) {
-      if (!Number.isInteger(idx) || idx < 0 || idx >= news.length) continue;
-      if (seen.has(idx)) continue;
-      seen.add(idx);
-      const n = news[idx];
-      sources.push({ url: n.url, title: n.title, summary: n.summary });
-    }
-    let text = p.text;
-    if (sources.length > 0 && !sources.some((s) => text.includes(s.url))) {
-      text = `${text.trimEnd()}\n\n${sources[0].url}`;
-    }
-    return { text, sources };
-  });
-}
-
 const inflight = new Map<string, Promise<GenerateResult>>();
 
 async function runPipeline(dayLabel: string): Promise<GenerateResult> {
@@ -402,7 +222,6 @@ async function runPipeline(dayLabel: string): Promise<GenerateResult> {
       fetchedCount: 0,
       selectedCount: 0,
       replies: [],
-      posts: [],
       generatedAt: new Date().toISOString(),
       cached: false,
     };
@@ -412,19 +231,8 @@ async function runPipeline(dayLabel: string): Promise<GenerateResult> {
 
   const client = new Anthropic({ maxRetries: 5 });
 
-  // TODO(re-enable posts): post generation временно отключена — упирается в 5-минутный таймаут
-  // из-за web_search tool-loop. Откатить этот блок, чтобы вернуть посты с новостями.
-  // const [selected, news] = await Promise.all([
-  //   selectTopTweets(client, tweets, REPLY_COUNT),
-  //   gatherNews(client, window.label),
-  // ]);
-  // const [replies, posts] = await Promise.all([
-  //   generateReplies(client, selected),
-  //   writePostsFromNews(client, news, window.label),
-  // ]);
   const selected = await selectTopTweets(client, tweets, REPLY_COUNT);
   const replies = await generateReplies(client, selected);
-  const posts: GeneratedPost[] = [];
 
   const result: GenerateResult = {
     schemaVersion: GENERATE_SCHEMA_VERSION,
@@ -433,7 +241,6 @@ async function runPipeline(dayLabel: string): Promise<GenerateResult> {
     fetchedCount: tweets.length,
     selectedCount: selected.length,
     replies,
-    posts,
     generatedAt: new Date().toISOString(),
     cached: false,
   };
