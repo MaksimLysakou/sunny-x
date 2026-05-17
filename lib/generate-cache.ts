@@ -3,7 +3,13 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { GENERATE_SCHEMA_VERSION, type GenerateResult } from "./generate";
 
-const CACHE_DIR = path.join(process.cwd(), ".cache", "generate");
+// On Vercel/AWS Lambda the function bundle at process.cwd() (/var/task) is read-only;
+// /tmp is the only writable path. Locally we keep .cache next to the repo for easy inspection.
+const isServerless =
+  !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+const CACHE_DIR = isServerless
+  ? path.join("/tmp", "sunny-x-cache", "generate")
+  : path.join(process.cwd(), ".cache", "generate");
 
 function cacheFileFor(dayLabel: string): string {
   const safe = dayLabel.replace(/[^A-Za-z0-9_-]/g, "_");

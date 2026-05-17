@@ -216,7 +216,7 @@ ${corpus}`;
 
   const response = await client.messages.parse({
     model: OPUS_MODEL,
-    max_tokens: 16384,
+    max_tokens: 8192,
     system: [
       {
         type: "text",
@@ -410,7 +410,7 @@ async function runPipeline(dayLabel: string): Promise<GenerateResult> {
     return empty;
   }
 
-  const client = new Anthropic();
+  const client = new Anthropic({ maxRetries: 5 });
 
   // TODO(re-enable posts): post generation временно отключена — упирается в 5-минутный таймаут
   // из-за web_search tool-loop. Откатить этот блок, чтобы вернуть посты с новостями.
