@@ -16,12 +16,14 @@ export function CardsLoader() {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
+    const start = Date.now();
+    setElapsed(0);
     const stageTimer = window.setInterval(() => {
       setStage((s) => (s < STAGES.length - 1 ? s + 1 : s));
     }, 6000);
     const tickTimer = window.setInterval(() => {
-      setElapsed((e) => e + 1);
-    }, 1000);
+      setElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 250);
     return () => {
       window.clearInterval(stageTimer);
       window.clearInterval(tickTimer);
