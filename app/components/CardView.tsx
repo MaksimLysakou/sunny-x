@@ -88,23 +88,38 @@ function ReplyOption({ text, index }: { text: string; index: number }) {
   };
 
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-      <span className="text-xs font-mono text-zinc-400 mt-0.5 select-none">
+    <button
+      type="button"
+      onClick={handleCopy}
+      aria-label={copied ? "Скопировано" : "Скопировать ответ"}
+      title={copied ? "Скопировано" : "Скопировать"}
+      className={`group w-full text-left flex items-start gap-2 rounded-lg border p-3 transition-colors cursor-pointer ${
+        copied
+          ? "border-emerald-300 bg-emerald-50"
+          : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100 hover:border-zinc-300 active:bg-zinc-200"
+      }`}
+    >
+      <span
+        className={`text-xs font-mono mt-0.5 select-none ${
+          copied ? "text-emerald-600" : "text-zinc-400"
+        }`}
+      >
         {index + 1}
       </span>
       <p className="flex-1 text-sm text-zinc-800 whitespace-pre-wrap leading-relaxed">
         {text}
       </p>
-      <button
-        type="button"
-        onClick={handleCopy}
-        aria-label={copied ? "Copied" : "Copy reply"}
-        title={copied ? "Copied" : "Copy"}
-        className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/70 transition-colors"
+      <span
+        className={`shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
+          copied
+            ? "text-emerald-600"
+            : "text-zinc-400 group-hover:text-zinc-900 group-hover:bg-zinc-200/70"
+        }`}
+        aria-hidden="true"
       >
         <CopyIcon copied={copied} />
-      </button>
-    </div>
+      </span>
+    </button>
   );
 }
 
