@@ -52,11 +52,11 @@ export function GenerateGate() {
 
           <div className="flex flex-col gap-2">
             <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">
-              Сегодняшние твиты ещё не готовы
+              Сегодняшние реплаи ещё не готовы
             </h2>
             <p className="text-sm text-zinc-600 max-w-md leading-relaxed">
-              Нажми кнопку, и я соберу свежие AI/IT новости, отберу твиты из ленты
-              и составлю карточки с постами и реплаями. Обычно занимает 30–60
+              Нажми кнопку, и я отберу твиты из ленты
+              и составлю карточки с реплаями. Обычно занимает 60
               секунд.
             </p>
           </div>
