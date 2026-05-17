@@ -21,9 +21,8 @@ export type GeneratedReply = {
 
 export type PostSource = {
   url: string;
-  authorHandle: string;
-  authorName: string;
-  snippet: string;
+  title: string;
+  summary: string;
 };
 
 export type GeneratedPost = {
@@ -31,7 +30,7 @@ export type GeneratedPost = {
   sources: PostSource[];
 };
 
-export const GENERATE_SCHEMA_VERSION = 3;
+export const GENERATE_SCHEMA_VERSION = 4;
 
 export type GenerateResult = {
   schemaVersion: number;
@@ -90,6 +89,28 @@ const REPLIES_SCHEMA = {
 const POSTS_SCHEMA = {
   type: "object",
   properties: {
+    news: {
+      type: "array",
+      description:
+        "The pool of real news stories you found via web_search and used as context. URLs MUST come directly from search results — never fabricate URLs.",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Headline of the news story." },
+          url: {
+            type: "string",
+            description: "Canonical article URL from the web_search results.",
+          },
+          summary: {
+            type: "string",
+            description:
+              "1–2 sentence plain-English summary a non-technical reader can understand. Explain jargon (e.g. don't just say 'new LLM language' — say 'a new programming language built specifically for LLMs').",
+          },
+        },
+        required: ["title", "url", "summary"],
+        additionalProperties: false,
+      },
+    },
     posts: {
       type: "array",
       items: {
@@ -99,19 +120,19 @@ const POSTS_SCHEMA = {
             type: "string",
             description: "The post text (≤ 280 chars).",
           },
-          sourceIndices: {
+          newsIndices: {
             type: "array",
             items: { type: "integer" },
             description:
-              "0-based indices of the source tweets this post is reacting to / referencing. Required when the post mentions specific news, tools, names, or events from the context so a non-technical reader can follow the link. Empty array only for pure original takes that don't reference anything specific.",
+              "0-based indices into the `news` array — the stories this post is reacting to. REQUIRED whenever the post mentions specific tools, launches, people, or events so a non-technical reader can click through. Use [] only for pure abstract takes.",
           },
         },
-        required: ["text", "sourceIndices"],
+        required: ["text", "newsIndices"],
         additionalProperties: false,
       },
     },
   },
-  required: ["posts"],
+  required: ["news", "posts"],
   additionalProperties: false,
 } as const;
 
@@ -243,29 +264,35 @@ ${corpus}`;
 
 async function generatePosts(
   client: Anthropic,
-  tweets: RawTweet[],
   dayLabel: string,
 ): Promise<GeneratedPost[]> {
-  const corpus = buildTweetCorpus(tweets);
+  const userPrompt = `Today is ${dayLabel}. Use the web_search tool 4–8 times to find the most newsworthy AI and IT stories from the last 24–72 hours from real news sources (TechCrunch, The Verge, Ars Technica, Bloomberg, Reuters, official company blogs, Hacker News front page, etc. — NOT random twitter takes). Cover a mix: model launches, product releases, funding/M&A, infra news, dev tooling, notable research, industry drama.
 
-  const userPrompt = `Today (${dayLabel}) the tech-twitter conversation is about these topics. Use them as situational context — do NOT quote them, do NOT reply to them. Write 6 ORIGINAL standalone posts in your voice riffing on what's in the air today.
+Then write 6 ORIGINAL standalone posts in your voice riffing on what's actually happening today. Different hook for each post.
 
-Different hook for each of the 6 posts.
+For each post, return newsIndices — the 0-based indices into your \`news\` array of the stories that post is reacting to. If the post mentions ANY specific tool, launch, company, person, or event, attaching the index is REQUIRED — readers may be non-technical and need the link to follow what you mean. Pure abstract opinions with no specific reference can return [].
 
-For each post, return sourceIndices — the 0-based indices of the source tweets the post is reacting to or referencing. If your post mentions a specific tool, news, launch, person, or event from the context, you MUST attach the matching source index so a non-technical reader can click through to the original news. Pure abstract takes that don't reference anything specific can return [].
+CRITICAL — inline links: when a post has newsIndices, the source URL(s) MUST appear inline in the post \`text\`, exactly as they appear in \`news[i].url\`. The URL is what readers click on X. Place it naturally: usually at the end on its own line, or mid-sentence ("X just shipped Y https://… — wild"). One URL is the common case; a second only if the post genuinely riffs on two stories. Don't add a URL unless its index is in newsIndices, and don't add an index without putting its URL in the text.
 
-TODAY'S CONTEXT:
+Character budget: max 280 chars per post. X auto-shortens any URL to 23 chars — count each URL as 23 regardless of real length, plus 1 for the space/newline before it. Keep the prose tight so the link fits.
 
-${corpus}`;
+In each news \`summary\`, explain the story in 1–2 plain-English sentences a layperson would get. Don't just echo a jargon headline — unpack it (e.g. instead of "Mojo 0.7 released", write "Modular released Mojo 0.7, a programming language built specifically for AI/ML workloads that compiles to fast machine code").
+
+All URLs in \`news\` MUST come directly from your web_search results — do not invent or guess URLs.`;
 
   const response = await client.messages.parse({
     model: OPUS_MODEL,
-    max_tokens: 4096,
-    thinking: { type: "adaptive" },
+    max_tokens: 8192,
     output_config: {
-      effort: "medium",
       format: { type: "json_schema", schema: POSTS_SCHEMA },
     },
+    tools: [
+      {
+        type: "web_search_20260209",
+        name: "web_search",
+        max_uses: 8,
+      },
+    ],
     system: [
       {
         type: "text",
@@ -277,26 +304,41 @@ ${corpus}`;
   });
 
   const parsed = response.parsed_output as
-    | { posts: Array<{ text: string; sourceIndices: number[] }> }
+    | {
+        news: Array<{ title: string; url: string; summary: string }>;
+        posts: Array<{ text: string; newsIndices: number[] }>;
+      }
     | null;
   if (!parsed) throw new Error("Opus post generation returned no parsed output");
+
+  const allowedUrls = new Set<string>();
+  for (const block of response.content) {
+    if (block.type === "web_search_tool_result" && Array.isArray(block.content)) {
+      for (const r of block.content) {
+        if (r.type === "web_search_result") allowedUrls.add(r.url);
+      }
+    }
+  }
+
+  const news = parsed.news.filter(
+    (n) => typeof n.url === "string" && (allowedUrls.size === 0 || allowedUrls.has(n.url)),
+  );
 
   return parsed.posts.slice(0, 6).map((p) => {
     const seen = new Set<number>();
     const sources: PostSource[] = [];
-    for (const idx of p.sourceIndices ?? []) {
-      if (!Number.isInteger(idx) || idx < 0 || idx >= tweets.length) continue;
+    for (const idx of p.newsIndices ?? []) {
+      if (!Number.isInteger(idx) || idx < 0 || idx >= news.length) continue;
       if (seen.has(idx)) continue;
       seen.add(idx);
-      const t = tweets[idx];
-      sources.push({
-        url: t.url,
-        authorHandle: t.authorUsername,
-        authorName: t.authorName,
-        snippet: t.text.slice(0, 200),
-      });
+      const n = news[idx];
+      sources.push({ url: n.url, title: n.title, summary: n.summary });
     }
-    return { text: p.text, sources };
+    let text = p.text;
+    if (sources.length > 0 && !sources.some((s) => text.includes(s.url))) {
+      text = `${text.trimEnd()}\n\n${sources[0].url}`;
+    }
+    return { text, sources };
   });
 }
 
@@ -334,7 +376,7 @@ async function runPipeline(dayLabel: string): Promise<GenerateResult> {
   const selected = await selectTopTweets(client, tweets, REPLY_COUNT);
   const [replies, posts] = await Promise.all([
     generateReplies(client, selected),
-    generatePosts(client, selected, window.label),
+    generatePosts(client, window.label),
   ]);
 
   const result: GenerateResult = {

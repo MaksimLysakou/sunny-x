@@ -1,8 +1,7 @@
 export type PostSourceRef = {
   url: string;
-  authorHandle: string;
-  authorName: string;
-  snippet: string;
+  title: string;
+  summary: string;
 };
 
 export type PostCard = {

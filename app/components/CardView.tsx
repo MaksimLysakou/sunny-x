@@ -38,6 +38,30 @@ function CopyIcon({ copied }: { copied: boolean }) {
   );
 }
 
+function LinkifiedText({ text }: { text: string }) {
+  const parts = text.split(/(https?:\/\/\S+)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (/^https?:\/\//.test(part)) {
+          return (
+            <a
+              key={i}
+              href={part}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sky-600 hover:underline break-all"
+            >
+              {part}
+            </a>
+          );
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
 function ReplyOption({ text, index }: { text: string; index: number }) {
   const [copied, setCopied] = useState(false);
 
@@ -92,7 +116,7 @@ export function CardView({ card }: { card: Card }) {
           New post
         </div>
         <p className="text-xl leading-relaxed text-zinc-900 whitespace-pre-wrap">
-          {card.text}
+          <LinkifiedText text={card.text} />
         </p>
         {card.sources.length > 0 && (
           <div className="flex flex-col gap-2 mt-2">
@@ -100,29 +124,37 @@ export function CardView({ card }: { card: Card }) {
               References
             </div>
             <ul className="flex flex-col gap-2">
-              {card.sources.map((src) => (
-                <li
-                  key={src.url}
-                  className="rounded-lg border border-zinc-200 bg-zinc-50 p-3"
-                >
-                  <a
-                    href={src.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block group"
+              {card.sources.map((src) => {
+                let host = "";
+                try {
+                  host = new URL(src.url).hostname.replace(/^www\./, "");
+                } catch {
+                  host = "";
+                }
+                return (
+                  <li
+                    key={src.url}
+                    className="rounded-lg border border-zinc-200 bg-zinc-50 p-3"
                   >
-                    <div className="text-xs text-zinc-500 mb-1">
-                      <span className="font-semibold text-zinc-700 group-hover:underline">
-                        @{src.authorHandle}
-                      </span>{" "}
-                      · {src.authorName}
-                    </div>
-                    <p className="text-sm text-zinc-700 line-clamp-3">
-                      {src.snippet}
-                    </p>
-                  </a>
-                </li>
-              ))}
+                    <a
+                      href={src.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block group"
+                    >
+                      <div className="text-sm font-semibold text-zinc-900 group-hover:underline mb-1">
+                        {src.title}
+                      </div>
+                      {host && (
+                        <div className="text-xs text-zinc-500 mb-1">{host}</div>
+                      )}
+                      <p className="text-sm text-zinc-700 line-clamp-3">
+                        {src.summary}
+                      </p>
+                    </a>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
