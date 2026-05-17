@@ -1,37 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Card } from "@/app/types";
 import { CardView } from "./CardView";
 
 type SwipeDir = "left" | "right" | null;
 
 export function CardStack({ initialCards }: { initialCards: Card[] }) {
-  const [cards, setCards] = useState<Card[]>(initialCards);
+  const [cards] = useState<Card[]>(initialCards);
   const [index, setIndex] = useState(0);
   const [swipe, setSwipe] = useState<SwipeDir>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (initialCards.length > 0) return;
-    let cancelled = false;
-    fetch("/api/cards")
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data: { cards: Card[] }) => {
-        if (cancelled) return;
-        setCards(data.cards ?? []);
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        setLoadError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [initialCards.length]);
 
   const total = cards.length;
   const remaining = Math.max(total - index, 0);
@@ -46,14 +24,6 @@ export function CardStack({ initialCards }: { initialCards: Card[] }) {
       setSwipe(null);
     }, 320);
   };
-
-  if (loadError) {
-    return (
-      <div className="text-red-600 text-sm">
-        Failed to load cards: {loadError}
-      </div>
-    );
-  }
 
   if (!current) {
     return (

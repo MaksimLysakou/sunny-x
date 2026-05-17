@@ -1,6 +1,8 @@
 import "server-only";
 import type { Card } from "@/app/types";
 import { generate, type GenerateResult } from "./generate";
+import { readCache } from "./generate-cache";
+import { getMoscowDayWindow } from "./x-api";
 
 export function resultToCards(result: GenerateResult): Card[] {
   const cards: Card[] = [];
@@ -34,4 +36,11 @@ export function resultToCards(result: GenerateResult): Card[] {
 export async function getCards(): Promise<Card[]> {
   const result = await generate();
   return resultToCards(result);
+}
+
+export async function getCachedCards(): Promise<Card[] | null> {
+  const window = getMoscowDayWindow();
+  const cached = await readCache(window.label);
+  if (!cached) return null;
+  return resultToCards(cached);
 }
