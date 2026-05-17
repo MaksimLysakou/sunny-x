@@ -412,14 +412,19 @@ async function runPipeline(dayLabel: string): Promise<GenerateResult> {
 
   const client = new Anthropic();
 
-  const [selected, news] = await Promise.all([
-    selectTopTweets(client, tweets, REPLY_COUNT),
-    gatherNews(client, window.label),
-  ]);
-  const [replies, posts] = await Promise.all([
-    generateReplies(client, selected),
-    writePostsFromNews(client, news, window.label),
-  ]);
+  // TODO(re-enable posts): post generation временно отключена — упирается в 5-минутный таймаут
+  // из-за web_search tool-loop. Откатить этот блок, чтобы вернуть посты с новостями.
+  // const [selected, news] = await Promise.all([
+  //   selectTopTweets(client, tweets, REPLY_COUNT),
+  //   gatherNews(client, window.label),
+  // ]);
+  // const [replies, posts] = await Promise.all([
+  //   generateReplies(client, selected),
+  //   writePostsFromNews(client, news, window.label),
+  // ]);
+  const selected = await selectTopTweets(client, tweets, REPLY_COUNT);
+  const replies = await generateReplies(client, selected);
+  const posts: GeneratedPost[] = [];
 
   const result: GenerateResult = {
     schemaVersion: GENERATE_SCHEMA_VERSION,
