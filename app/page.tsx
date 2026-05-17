@@ -1,32 +1,32 @@
 import Image from "next/image";
-import { getCurrentDayKey, getData } from "@/lib/data";
+import { getCards } from "@/lib/cards";
+import { CardStack } from "./components/CardStack";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export default async function Home() {
-  const day = getCurrentDayKey();
-  let data: unknown = null;
+  let cards: Awaited<ReturnType<typeof getCards>> = [];
   let error: string | null = null;
-
   try {
-    data = await getData();
+    cards = await getCards();
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center gap-6 p-8 bg-zinc-50 dark:bg-black text-zinc-900 dark:text-zinc-50">
-      <div className="flex items-center gap-3">
-        <Image src="/sun.svg" alt="sunny-x" width={40} height={40} priority />
-        <h1 className="text-2xl font-semibold">sunny-x</h1>
-      </div>
-      <p className="text-sm text-zinc-500">Day: {day}</p>
+    <main className="min-h-screen flex flex-col items-center justify-start gap-8 p-6 sm:p-10 bg-zinc-50 text-zinc-900">
+      <header className="flex items-center gap-3 mt-2">
+        <Image src="/sun.svg" alt="sunny-x" width={44} height={44} priority />
+        <h1 className="text-2xl font-semibold tracking-tight">sunny-x</h1>
+      </header>
+
       {error ? (
-        <pre className="max-w-2xl whitespace-pre-wrap text-red-600">{error}</pre>
+        <div className="max-w-2xl text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-4 whitespace-pre-wrap">
+          {error}
+        </div>
       ) : (
-        <pre className="max-w-2xl w-full overflow-auto rounded-lg bg-white dark:bg-zinc-900 p-4 text-sm">
-          {JSON.stringify(data, null, 2)}
-        </pre>
+        <CardStack initialCards={cards} />
       )}
     </main>
   );
