@@ -46,3 +46,4 @@ lib/
 public/
   sun.svg       # логотип
 ```
+
