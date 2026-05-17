@@ -5,11 +5,10 @@ import { useEffect, useState } from "react";
 const STAGES = [
   "Тащу сегодняшние твиты",
   "Отбираю самое сочное",
-  "Гуглю свежие AI/IT новости",
   "Пишу варианты ответов",
-  "Сочиняю оригинальные посты",
-  "Почти готово",
+  "Шлифую и почти готово",
 ];
+const STAGE_MS = 16000;
 
 export function CardsLoader() {
   const [stage, setStage] = useState(0);
@@ -20,7 +19,7 @@ export function CardsLoader() {
     setElapsed(0);
     const stageTimer = window.setInterval(() => {
       setStage((s) => (s < STAGES.length - 1 ? s + 1 : s));
-    }, 6000);
+    }, STAGE_MS);
     const tickTimer = window.setInterval(() => {
       setElapsed(Math.floor((Date.now() - start) / 1000));
     }, 250);
