@@ -12,6 +12,10 @@ import { markdownToStyledHtml } from "./md-format";
 const OPUS_MODEL = "claude-opus-4-8";
 // Nano Banana Pro first; fall back to the flash image model if it's overloaded.
 const IMAGE_MODELS = ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"];
+// Hero is embedded full-resolution but DISPLAYED at this px width via <img
+// width> (Google honors it on import) so it fits the page content column
+// (~6.3in on a default A4/Letter doc) instead of overflowing.
+const HERO_WIDTH_PX = 600;
 
 // 10 reference image URLs for the hero (style + composition guidance).
 // Set ARTICLE_HERO_REFERENCES as a comma/newline-separated list; empty is OK
@@ -246,6 +250,8 @@ async function generateHeroImage(heroPrompt: string): Promise<string> {
         const out = response.candidates?.[0]?.content?.parts ?? [];
         const imagePart = out.find((p) => p.inlineData?.data);
         if (!imagePart?.inlineData?.data) throw new Error("empty image response");
+        // Keep the full-resolution image; display size is constrained by the
+        // <img width> in buildDocHtml (Google honors it on import).
         const mimeType = imagePart.inlineData.mimeType ?? "image/jpeg";
         return `data:${mimeType};base64,${imagePart.inlineData.data}`;
       } catch (e) {
@@ -275,11 +281,13 @@ function buildDocHtml(
   finalMd: string,
 ): string {
   const body = markdownToStyledHtml(finalMd); // step 6 — fully inline-styled
+  const metaLine = (label: string, value: string) =>
+    `<p style="${META_P}"><strong>${label}:</strong> ${escapeHtml(value)}</p>`;
   const head = [
-    `<p style="${META_P}">${escapeHtml(seo.url)}</p>`,
-    `<p style="${META_P}">${escapeHtml(seo.metaTitle)}</p>`,
-    `<p style="${META_P}">${escapeHtml(seo.metaDescription)}</p>`,
-    `<p><img src="${heroImage}"></p>`,
+    metaLine("url", seo.url),
+    metaLine("meta title", seo.metaTitle),
+    metaLine("meta description", seo.metaDescription),
+    `<p><img src="${heroImage}" width="${HERO_WIDTH_PX}" style="width:${HERO_WIDTH_PX}px;max-width:100%;height:auto"></p>`,
   ].join("");
   // No <style> block: Google Docs' importer would let a stylesheet rule (e.g.
   // `* { color:#000 }`) override our inline cell colors. Pure inline styles
