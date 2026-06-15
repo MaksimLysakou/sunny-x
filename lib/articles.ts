@@ -171,7 +171,7 @@ const SEO_SCHEMA = {
     heroPrompt: {
       type: "string",
       description:
-        "English image-generation prompt for the hero. MUST be space-themed: planets, comets and/or rockets, with a robot (or similar character) in the center. Do NOT mention any colors. Do NOT request any text in the image.",
+        "English image-generation prompt for the hero. MUST be (non realistic) space-themed: planets or comets or rocket, with a robot (or similar character) in the center. Do NOT mention any colors. Do NOT request any text in the image. Must be empty space reserved for the title in the bottom of image.",
     },
   },
   required: ["url", "metaTitle", "metaDescription", "heroPrompt"],
