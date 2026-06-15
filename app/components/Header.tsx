@@ -8,8 +8,8 @@ export function Header() {
         href="/"
         className="flex items-center gap-3 hover:opacity-80 transition-opacity"
       >
-        <Image src="/sun.svg" alt="sunny-x" width={44} height={44} priority />
-        <h1 className="text-2xl font-semibold tracking-tight">sunny-x</h1>
+        <Image src="/sun.svg" alt="Sunny AI tools" width={44} height={44} priority />
+        <h1 className="text-2xl font-semibold tracking-tight">Sunny AI tools</h1>
       </Link>
     </header>
   );

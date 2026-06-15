@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "sunny-x",
-  description: "sunny-x",
+  title: "Sunny AI tools",
+  description: "Sunny AI tools",
 };
 
 export default function RootLayout({
