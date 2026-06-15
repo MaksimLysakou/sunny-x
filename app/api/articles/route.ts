@@ -24,6 +24,11 @@ export async function POST(request: Request) {
     async start(controller) {
       const send = (obj: unknown) =>
         controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+      // Browsers buffer the first ~1KB of a streamed response before handing
+      // chunks to fetch(). Flush a padding line up front so the tiny step
+      // events that follow are delivered immediately instead of all at the end.
+      // The client skips blank/non-JSON lines, so this is inert.
+      controller.enqueue(encoder.encode(" ".repeat(2048) + "\n"));
       try {
         const result = await generateArticle({ briefUrl, keysUrl }, (step) =>
           send({ type: "step", step }),
