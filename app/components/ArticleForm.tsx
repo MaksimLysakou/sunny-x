@@ -4,15 +4,15 @@ import { useEffect, useState } from "react";
 
 const GDOCS_RE = /docs\.google\.com\/(document|spreadsheets)\//i;
 
-const STAGES = [
-  "Скачиваю ТЗ",
-  "Пишу статью по ТЗ",
-  "Вычитываю и добавляю ключи",
-  "Готовлю SEO и промпт картинки",
-  "Рисую hero-картинку",
-  "Форматирую и собираю Google Docs",
+// Keys must match StepKey order in lib/articles.ts.
+const STEPS: { key: string; label: string }[] = [
+  { key: "fetch", label: "Скачиваю ТЗ" },
+  { key: "write", label: "Пишу статью по ТЗ" },
+  { key: "proofread", label: "Вычитываю и добавляю ключи" },
+  { key: "seo", label: "Готовлю SEO и промпт картинки" },
+  { key: "image", label: "Рисую hero-картинку" },
+  { key: "doc", label: "Форматирую и собираю Google Docs" },
 ];
-const STAGE_MS = 25000;
 
 type ArticleResult = {
   docUrl: string;
@@ -24,7 +24,7 @@ type ArticleResult = {
 
 type State =
   | { kind: "idle" }
-  | { kind: "running" }
+  | { kind: "running"; step: number } // index into STEPS; -1 before first event
   | { kind: "done"; result: ArticleResult }
   | { kind: "error"; message: string };
 
@@ -41,7 +41,7 @@ export function ArticleForm() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
-    setState({ kind: "running" });
+    setState({ kind: "running", step: -1 });
     try {
       const res = await fetch("/api/articles", {
         method: "POST",
@@ -51,11 +51,48 @@ export function ArticleForm() {
           keysUrl: hasKeys ? keys.trim() : null,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || data.error) {
+
+      // Non-streamed responses (validation 400 etc.) come back as JSON.
+      if (!res.body || !res.headers.get("content-type")?.includes("ndjson")) {
+        const data = await res.json().catch(() => ({}));
         throw new Error(data.error ?? `HTTP ${res.status}`);
       }
-      setState({ kind: "done", result: data as ArticleResult });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let result: ArticleResult | null = null;
+      let streamError: string | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, nl).trim();
+          buf = buf.slice(nl + 1);
+          if (!line) continue;
+          let ev: { type: string; step?: string; result?: ArticleResult; error?: string };
+          try {
+            ev = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          if (ev.type === "step") {
+            const i = STEPS.findIndex((s) => s.key === ev.step);
+            setState({ kind: "running", step: i });
+          } else if (ev.type === "result" && ev.result) {
+            result = ev.result;
+          } else if (ev.type === "error") {
+            streamError = ev.error ?? "Unknown error";
+          }
+        }
+      }
+
+      if (streamError) throw new Error(streamError);
+      if (!result) throw new Error("Пустой ответ сервера");
+      setState({ kind: "done", result });
     } catch (err) {
       setState({
         kind: "error",
@@ -78,7 +115,7 @@ export function ArticleForm() {
       </section>
 
       {state.kind === "running" ? (
-        <ArticleProgress />
+        <ArticleProgress step={state.step} />
       ) : state.kind === "done" ? (
         <ResultCard result={state.result} onReset={() => setState({ kind: "idle" })} />
       ) : (
@@ -155,68 +192,91 @@ export function ArticleForm() {
   );
 }
 
-function ArticleProgress() {
-  const [stage, setStage] = useState(0);
+function ArticleProgress({ step }: { step: number }) {
   const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
     const start = Date.now();
-    const stageTimer = window.setInterval(() => {
-      setStage((s) => (s < STAGES.length - 1 ? s + 1 : s));
-    }, STAGE_MS);
     const tickTimer = window.setInterval(() => {
       setElapsed(Math.floor((Date.now() - start) / 1000));
     }, 250);
-    return () => {
-      window.clearInterval(stageTimer);
-      window.clearInterval(tickTimer);
-    };
+    return () => window.clearInterval(tickTimer);
   }, []);
 
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const ss = String(elapsed % 60).padStart(2, "0");
+  // step === -1 means the request is in flight but no step event yet.
+  const active = step < 0 ? 0 : step;
+  const heading = step < 0 ? "Запускаю" : STEPS[active].label;
 
   return (
     <div className="w-full rounded-2xl bg-white border border-zinc-200 shadow-sm p-8 flex flex-col items-center gap-6 text-center">
       <Spinner />
       <div className="flex flex-col gap-1">
-        <div className="text-base font-medium text-zinc-800">
-          {STAGES[stage]}…
-        </div>
+        <div className="text-base font-medium text-zinc-800">{heading}…</div>
         <div className="text-xs text-zinc-500 font-mono">
           {mm}:{ss}
         </div>
       </div>
-      <ol className="w-full max-w-xs flex flex-col gap-1.5 text-left">
-        {STAGES.map((label, i) => (
-          <li
-            key={label}
-            className={`flex items-center gap-2 text-xs ${
-              i < stage
-                ? "text-zinc-400"
-                : i === stage
-                  ? "text-zinc-800 font-medium"
-                  : "text-zinc-300"
-            }`}
-          >
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                i < stage
-                  ? "bg-emerald-400"
-                  : i === stage
-                    ? "bg-amber-500"
-                    : "bg-zinc-200"
+      <ol className="w-full max-w-sm flex flex-col gap-2.5 text-left">
+        {STEPS.map((s, i) => {
+          const done = step >= 0 && i < active;
+          const current = step >= 0 && i === active;
+          return (
+            <li
+              key={s.key}
+              className={`flex items-center gap-3 text-sm ${
+                done
+                  ? "text-zinc-400"
+                  : current
+                    ? "text-zinc-900 font-medium"
+                    : "text-zinc-300"
               }`}
-            />
-            {label}
-          </li>
-        ))}
+            >
+              <StepMarker done={done} current={current} />
+              {s.label}
+            </li>
+          );
+        })}
       </ol>
       <p className="text-xs text-zinc-400 max-w-xs leading-relaxed">
         Три прохода Opus 4.8 + генерация картинки + сборка документа. Обычно 1.5–3
         минуты.
       </p>
     </div>
+  );
+}
+
+function StepMarker({ done, current }: { done: boolean; current: boolean }) {
+  if (done) {
+    return (
+      <span className="w-5 h-5 shrink-0 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="w-3 h-3"
+          aria-hidden="true"
+        >
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+      </span>
+    );
+  }
+  if (current) {
+    return (
+      <span className="w-5 h-5 shrink-0 rounded-full bg-amber-100 flex items-center justify-center">
+        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+      </span>
+    );
+  }
+  return (
+    <span className="w-5 h-5 shrink-0 rounded-full border border-zinc-200 flex items-center justify-center">
+      <span className="w-1.5 h-1.5 rounded-full bg-zinc-200" />
+    </span>
   );
 }
 

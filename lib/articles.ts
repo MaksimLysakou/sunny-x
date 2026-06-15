@@ -10,7 +10,8 @@ import { markdownToStyledHtml, DOC_THEME_CSS } from "./md-format";
 // runs them in sequence.
 
 const OPUS_MODEL = "claude-opus-4-8";
-const IMAGE_MODEL = "gemini-3-pro-image-preview"; // Nano Banana Pro
+// Nano Banana Pro first; fall back to the flash image model if it's overloaded.
+const IMAGE_MODELS = ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"];
 
 // 10 reference image URLs for the hero (style + composition guidance).
 // Set ARTICLE_HERO_REFERENCES as a comma/newline-separated list; empty is OK
@@ -21,6 +22,9 @@ const HERO_REFERENCES: string[] = (process.env.ARTICLE_HERO_REFERENCES ?? "")
   .filter(Boolean);
 
 export type ArticleInput = { briefUrl: string; keysUrl: string | null };
+
+// Pipeline steps, in order — emitted to the UI as each one starts.
+export type StepKey = "fetch" | "write" | "proofread" | "seo" | "image" | "doc";
 
 export type ArticleSeo = {
   url: string;
@@ -227,20 +231,31 @@ async function generateHeroImage(heroPrompt: string): Promise<string> {
     ? " Use the reference images ONLY as guidance for overall visual style and composition. Create a brand-new original image — do not copy, reproduce, or edit the reference images themselves."
     : "";
   const fullPrompt = `${heroPrompt}${guidance} Do not include any text, letters, words, watermarks, or logos in the image.`;
+  const parts = [{ text: fullPrompt }, ...refs];
 
-  const response = await ai.models.generateContent({
-    model: IMAGE_MODEL,
-    contents: [{ role: "user", parts: [{ text: fullPrompt }, ...refs] }],
-  });
-
-  const parts = response.candidates?.[0]?.content?.parts ?? [];
-  const imagePart = parts.find((p) => p.inlineData?.data);
-  if (!imagePart?.inlineData?.data) {
-    throw new Error("Nano Banana не вернул изображение");
+  // Image models get overloaded (503); retry each model twice before failing,
+  // and fall back from Nano Banana Pro to the flash model.
+  let lastError: unknown;
+  for (const model of IMAGE_MODELS) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: [{ role: "user", parts }],
+        });
+        const out = response.candidates?.[0]?.content?.parts ?? [];
+        const imagePart = out.find((p) => p.inlineData?.data);
+        if (!imagePart?.inlineData?.data) throw new Error("empty image response");
+        const mimeType = imagePart.inlineData.mimeType ?? "image/jpeg";
+        return `data:${mimeType};base64,${imagePart.inlineData.data}`;
+      } catch (e) {
+        lastError = e;
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
   }
-
-  const mimeType = imagePart.inlineData.mimeType ?? "image/jpeg";
-  return `data:${mimeType};base64,${imagePart.inlineData.data}`;
+  const msg = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(`Nano Banana не вернул изображение: ${msg}`);
 }
 
 // --- Step 6 + 7: format and create the Google Doc -------------------------
@@ -278,6 +293,7 @@ function buildDocHtml(
 
 export async function generateArticle(
   input: ArticleInput,
+  onStep?: (step: StepKey) => void,
 ): Promise<ArticleResult> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not set");
@@ -286,18 +302,25 @@ export async function generateArticle(
   if (!folderId) throw new Error("GOOGLE_DRIVE_FOLDER_ID is not set");
 
   const client = new Anthropic({ maxRetries: 5 });
+  const step = (k: StepKey) => onStep?.(k);
 
   // 1. fetch ТЗ
+  step("fetch");
   const { briefRaw, keysRaw } = await fetchBrief(input);
   // 2. write
+  step("write");
   const draftMd = await writeArticle(client, briefRaw, keysRaw);
   // 3. proofread + keys + length
+  step("proofread");
   const finalMd = await proofreadArticle(client, draftMd, briefRaw, keysRaw);
   // 4. SEO + hero prompt
+  step("seo");
   const seo = await generateSeo(client, finalMd);
   // 5. hero image
+  step("image");
   const heroImage = await generateHeroImage(seo.heroPrompt);
   // 6 + 7. format + create Google Doc
+  step("doc");
   const html = buildDocHtml(seo, heroImage, finalMd);
   const doc = await createArticleDoc({
     name: seo.metaTitle || seo.url || "Статья",

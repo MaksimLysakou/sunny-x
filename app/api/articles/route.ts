@@ -17,11 +17,31 @@ export async function POST(request: Request) {
   }
   const keysUrl = body.keysUrl ? String(body.keysUrl).trim() || null : null;
 
-  try {
-    const result = await generateArticle({ briefUrl, keysUrl });
-    return Response.json(result);
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    return Response.json({ error: message }, { status: 500 });
-  }
+  // Stream progress as newline-delimited JSON: one {type:"step"} per pipeline
+  // step, then a final {type:"result"} or {type:"error"}.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (obj: unknown) =>
+        controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+      try {
+        const result = await generateArticle({ briefUrl, keysUrl }, (step) =>
+          send({ type: "step", step }),
+        );
+        send({ type: "result", result });
+      } catch (e) {
+        send({ type: "error", error: e instanceof Error ? e.message : String(e) });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
