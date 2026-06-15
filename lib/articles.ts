@@ -2,7 +2,7 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
 import { downloadBriefText, createArticleDoc } from "./google";
-import { markdownToStyledHtml, DOC_THEME_CSS } from "./md-format";
+import { markdownToStyledHtml } from "./md-format";
 
 // Article generation pipeline (see docs/article-generation-plan.md).
 // 7 steps: fetch ТЗ → write → proofread → SEO+hero prompt → hero image →
@@ -267,24 +267,27 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
+const META_P = "font-family:Arial,sans-serif;font-size:11pt;color:#000";
+
 function buildDocHtml(
   seo: ArticleSeo,
   heroImage: string,
   finalMd: string,
 ): string {
-  const body = markdownToStyledHtml(finalMd); // step 6
+  const body = markdownToStyledHtml(finalMd); // step 6 — fully inline-styled
   const head = [
-    `<p>${escapeHtml(seo.url)}</p>`,
-    `<p>${escapeHtml(seo.metaTitle)}</p>`,
-    `<p>${escapeHtml(seo.metaDescription)}</p>`,
+    `<p style="${META_P}">${escapeHtml(seo.url)}</p>`,
+    `<p style="${META_P}">${escapeHtml(seo.metaTitle)}</p>`,
+    `<p style="${META_P}">${escapeHtml(seo.metaDescription)}</p>`,
     `<p><img src="${heroImage}"></p>`,
   ].join("");
+  // No <style> block: Google Docs' importer would let a stylesheet rule (e.g.
+  // `* { color:#000 }`) override our inline cell colors. Pure inline styles
+  // import faithfully.
   return [
     "<!DOCTYPE html>",
-    '<html><head><meta charset="utf-8"><style>',
-    DOC_THEME_CSS,
-    "</style></head><body>",
-    `<div class="doc-theme">${head}${body}</div>`,
+    '<html><head><meta charset="utf-8"></head><body>',
+    `${head}${body}`,
     "</body></html>",
   ].join("");
 }

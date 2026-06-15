@@ -15,25 +15,46 @@ import MarkdownIt from "markdown-it";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 
-// The first <h1> becomes a Word/Docs "Title" paragraph, centered, at 26pt.
-// Inlined on the element so it survives a clipboard copy with no stylesheet.
-const WORD_TITLE_INLINE_STYLE = [
-  "mso-style-name:Title",
-  "font-family:Arial,sans-serif",
-  "font-size:26pt",
-  "line-height:1.3",
-  "color:#000",
-  "text-align:center",
-].join(";");
+// Google Docs' HTML import ignores CSS pseudo-class selectors (td:first-child,
+// thead th, …), so a <style> block can't style tables correctly. Instead we
+// INLINE every style onto the element — which is what the browser clipboard
+// effectively does, and what makes the import look like the formatter preview.
+// Values mirror the `.doc-theme` "final priority" rules in DOC_THEME_CSS.
+const S = {
+  // first <h1> → Word/Docs "Title" paragraph
+  title:
+    "mso-style-name:Title;font-family:Arial,sans-serif;font-size:26pt;line-height:1.3;color:#000;text-align:center;font-weight:normal",
+  h2: "font-family:Arial,sans-serif;font-size:16pt;line-height:1.4;color:#000;font-weight:normal",
+  h3: "font-family:Arial,sans-serif;font-size:14pt;line-height:1.4;color:#000;font-weight:normal",
+  para: "font-family:Arial,sans-serif;font-size:11pt;line-height:1.15;color:#000",
+  list:
+    "font-family:Arial,sans-serif;font-size:11pt;line-height:1.15;color:#000;padding-left:1.5em",
+  link: "color:#1155cc",
+  blockquote:
+    "margin:0 0 1em;padding:0 1.5em;border-left:3px solid #2ec4c8;background:transparent",
+  codeInline:
+    "font-family:Menlo,Consolas,monospace;font-size:0.9em;background:#f4f6fa;padding:2px 6px;border-radius:6px",
+  pre:
+    "font-family:Menlo,Consolas,monospace;padding:20px 24px;background:#0f172a;color:#e6edf3;border-radius:16px;font-size:14px;line-height:1.5;white-space:pre-wrap",
+  table: "width:100%;border-collapse:collapse;font-family:Arial,sans-serif",
+  th: "background:#20124d;color:#facd45;font-weight:700;font-size:12pt;text-align:center;padding:8px 10px;border:1pt solid #3e2e68;vertical-align:middle",
+  tdFirst:
+    "background:#3e2e68;color:#f3f3f3;font-weight:700;font-size:10pt;padding:8px 10px;border:1pt solid #4e4170;vertical-align:middle",
+  td: "background:#989dbf;color:#000;font-size:11pt;text-align:center;padding:8px 10px;border:1pt solid #b1b6d1;vertical-align:middle",
+  hr: "height:1px;background-color:#dbe1e7;border:none",
+} as const;
 
 type RenderEnv = {
   wordTitleRendered?: boolean;
   wordTitleOpen?: boolean;
+  tableCol?: number;
 };
 
 /**
  * Build a configured markdown-it instance. Each call is independent so it is
  * safe to reuse across requests; render state lives in the per-render `env`.
+ * All block/inline rules emit inline styles so Google Docs' HTML import
+ * reproduces the formatter look (tables included).
  */
 export function createMarkdownRenderer(): MarkdownIt {
   const md = new MarkdownIt({
@@ -43,38 +64,63 @@ export function createMarkdownRenderer(): MarkdownIt {
     breaks: true,
   });
 
-  const defaultHeadingOpen =
-    md.renderer.rules.heading_open ??
-    ((tokens, idx, options, _env, self) =>
-      self.renderToken(tokens, idx, options));
-  const defaultHeadingClose =
-    md.renderer.rules.heading_close ??
-    ((tokens, idx, options, _env, self) =>
-      self.renderToken(tokens, idx, options));
+  const rules = md.renderer.rules;
 
-  md.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
+  // Headings: first h1 → centered MsoTitle paragraph; h2/h3 inline-styled.
+  rules.heading_open = (tokens, idx, options, env, self) => {
     const token = tokens[idx];
-    const state = (env ?? {}) as RenderEnv;
-
-    if (token.tag === "h1" && !state.wordTitleRendered) {
+    if (token.tag === "h1") {
+      const state = (env ?? {}) as RenderEnv;
+      const cls = state.wordTitleRendered ? "doc-title" : "MsoTitle doc-title";
       state.wordTitleRendered = true;
-      state.wordTitleOpen = true;
-      return `<p class="MsoTitle doc-title" style="${WORD_TITLE_INLINE_STYLE}">`;
+      return `<p class="${cls}" style="${S.title}">`;
     }
-
-    return defaultHeadingOpen(tokens, idx, options, env, self);
+    if (token.tag === "h2") return `<h2 style="${S.h2}">`;
+    if (token.tag === "h3") return `<h3 style="${S.h3}">`;
+    return self.renderToken(tokens, idx, options);
+  };
+  rules.heading_close = (tokens, idx, options, _env, self) => {
+    const tag = tokens[idx].tag;
+    if (tag === "h1") return "</p>";
+    if (tag === "h2" || tag === "h3") return `</${tag}>`;
+    return self.renderToken(tokens, idx, options);
   };
 
-  md.renderer.rules.heading_close = (tokens, idx, options, env, self) => {
-    const token = tokens[idx];
-    const state = (env ?? {}) as RenderEnv;
+  rules.paragraph_open = (tokens, idx) =>
+    tokens[idx].hidden ? "" : `<p style="${S.para}">`;
+  rules.paragraph_close = (tokens, idx) => (tokens[idx].hidden ? "" : "</p>");
 
-    if (token.tag === "h1" && state.wordTitleOpen) {
-      state.wordTitleOpen = false;
-      return "</p>";
-    }
+  rules.bullet_list_open = () => `<ul style="${S.list}">`;
+  rules.ordered_list_open = () => `<ol style="${S.list}">`;
+  rules.list_item_open = () => `<li style="${S.para}">`;
 
-    return defaultHeadingClose(tokens, idx, options, env, self);
+  rules.link_open = (tokens, idx, options, _env, self) => {
+    tokens[idx].attrSet("style", S.link);
+    return self.renderToken(tokens, idx, options);
+  };
+
+  rules.blockquote_open = () => `<blockquote style="${S.blockquote}">`;
+
+  rules.code_inline = (tokens, idx) =>
+    `<code style="${S.codeInline}">${md.utils.escapeHtml(tokens[idx].content)}</code>`;
+  rules.fence = (tokens, idx) =>
+    `<pre style="${S.pre}"><code>${md.utils.escapeHtml(tokens[idx].content)}</code></pre>`;
+  rules.code_block = rules.fence;
+
+  rules.hr = () => `<hr style="${S.hr}">`;
+
+  // Tables: inline per-cell styles, first body column treated as a row header.
+  rules.table_open = () => `<table style="${S.table}">`;
+  rules.tr_open = (_tokens, _idx, _options, env) => {
+    (env as RenderEnv).tableCol = 0;
+    return "<tr>";
+  };
+  rules.th_open = () => `<th style="${S.th}">`;
+  rules.td_open = (_tokens, _idx, _options, env) => {
+    const e = env as RenderEnv;
+    const first = (e.tableCol ?? 0) === 0;
+    e.tableCol = (e.tableCol ?? 0) + 1;
+    return `<td style="${first ? S.tdFirst : S.td}">`;
   };
 
   return md;
