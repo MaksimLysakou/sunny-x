@@ -232,10 +232,15 @@ async function generateHeroImage(heroPrompt: string): Promise<string> {
   ).filter((r): r is NonNullable<typeof r> => r !== null);
 
   const guidance = refs.length
-    ? " Use the reference images ONLY as guidance for overall visual style and composition. Create a brand-new original image — do not copy, reproduce, or edit the reference images themselves."
+    ? ` IMPORTANT: the ${refs.length} attached reference images define the REQUIRED visual style. Closely match their art direction, illustration/rendering technique, shapes, materials, lighting, colour treatment and overall composition. Render the scene described above as a brand-new original image in that exact same style. Do not copy, trace, collage or reproduce any single reference image directly.`
     : "";
   const fullPrompt = `${heroPrompt}${guidance} Do not include any text, letters, words, watermarks, or logos in the image.`;
-  const parts = [{ text: fullPrompt }, ...refs];
+  // Lead with the instruction, then the style references.
+  const parts = [
+    { text: fullPrompt },
+    ...(refs.length ? [{ text: "Style reference images to match:" }] : []),
+    ...refs,
+  ];
 
   // Image models get overloaded (503); retry each model twice before failing,
   // and fall back from Nano Banana Pro to the flash model.
