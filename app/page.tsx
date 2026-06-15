@@ -8,12 +8,6 @@ export default function Home() {
     <main className="min-h-screen flex flex-col items-center justify-start gap-12 p-6 sm:p-10 bg-zinc-50 text-zinc-900">
       <Header />
 
-      <section className="w-full max-w-4xl flex flex-col items-center text-center gap-3 mt-6">
-        <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight">
-          Над чем сегодня работаем?
-        </h2>
-      </section>
-
       <div className="w-full max-w-4xl flex flex-col gap-10">
         <Group title="Копирайтинг">
           <WorkCard
