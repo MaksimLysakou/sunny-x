@@ -11,12 +11,12 @@ export default function Home() {
       <div className="w-full max-w-4xl flex flex-col gap-10">
         <Group title="Копирайтинг">
           <WorkCard
+            href="/articles"
             accent="amber"
             eyebrow="Лонгрид"
             title="Написать статью"
             description="Конвертируем ТЗшку в красивую статью с ключами, hero картинкой и текстом постов."
             icon={<ArticleIcon />}
-            comingSoon
           />
           <WorkCard
             accent="amber"
