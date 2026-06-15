@@ -175,7 +175,7 @@ const SEO_SCHEMA = {
     heroPrompt: {
       type: "string",
       description:
-        "English image-generation prompt for the hero illustration. It must represent THIS article's topic — a non-literal visual metaphor for the subject matter, tailored to the article. The article's topic should drive the main imagery; space motifs (a robot, planets, comets, rockets) are welcome as OPTIONAL decorative or background accents but are NOT required and should not dominate. Non-realistic, modern, clean illustration. The background MUST be purple/violet. Strictly NO text, letters, words, numbers or logos anywhere in the image.",
+        "English image-generation prompt for the hero illustration. It must represent THIS article's topic — a non-literal visual metaphor for the subject matter, tailored to the article. The article's topic should drive the main imagery; space motifs (a robot, planets, comets, rockets) are welcome as OPTIONAL decorative or background accents but are NOT required and should not dominate. The overall art style MUST be COSMIC / outer-space themed (starfield, nebula, cosmic glow, deep-space atmosphere). Non-realistic, modern, clean illustration. The background MUST be purple/violet. Strictly NO text, letters, words, numbers or logos anywhere in the image.",
     },
   },
   required: ["url", "metaTitle", "metaDescription", "heroPrompt"],
@@ -188,7 +188,7 @@ async function generateSeo(
 ): Promise<ArticleSeo> {
   const userPrompt = `Based on this finished article, produce: a URL slug, an SEO meta title, an SEO meta description, and a hero-image prompt.
 
-Hero prompt constraints (strict): an non-literal illustration that represents what THIS specific article is about — pick a visual metaphor that fits the topic, which should drive the main imagery. Space motifs (a robot, planets, comets, rockets) may appear as optional decorative or background accents but must not be required or dominate. Non-realistic style. The background must be purple/violet. No text, letters, words or numbers of any kind in the image.
+Hero prompt constraints (strict): a non-literal illustration that represents what THIS specific article is about — pick a visual metaphor that fits the topic, which should drive the main imagery. Space motifs (a robot, planets, comets, rockets) may appear as optional decorative or background accents but must not be required or dominate. The overall art style must be COSMIC / outer-space themed (starfield, nebula, cosmic glow, deep-space atmosphere). Non-realistic style. The background must be purple/violet. No text, letters, words or numbers of any kind in the image.
 
 ARTICLE:\n${finalMd}`;
 
