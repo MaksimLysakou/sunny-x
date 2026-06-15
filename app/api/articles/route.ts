@@ -42,6 +42,11 @@ export async function POST(request: Request) {
       "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       "X-Accel-Buffering": "no",
+      // Without this, Chrome buffers up to ~1KB for MIME sniffing before
+      // releasing stream chunks to fetch() — which would hold back the tiny
+      // step events until the big final result chunk arrives. nosniff disables
+      // that buffer so each step event reaches the UI immediately.
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }
