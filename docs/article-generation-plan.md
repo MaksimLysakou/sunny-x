@@ -41,7 +41,7 @@ type ArticleJob = {
   draftMd?: string;                               // шаг 2
   finalMd?: string;                               // шаг 3
   seo?: { url: string; metaTitle: string; metaDescription: string; heroPrompt: string }; // шаг 4
-  heroImageUrl?: string;                          // шаг 5 (blob URL)
+  heroImage?: string;                             // шаг 5 (base64 data URI)
   styledHtml?: string;                            // шаг 6
   docUrl?: string;                                // шаг 7
   status: "running" | "done" | "error";
@@ -161,8 +161,10 @@ type ArticleJob = {
 > равно «дал ссылки», просто скачивание делаем мы. Если какой-то URL недоступен —
 > пропускаем его, остальные идут в дело.
 
-**Выход:** сгенерированное изображение → кладём в Vercel Blob, сохраняем
-публичный `heroImageUrl` (понадобится для вставки в Google Docs на шаге 7).
+**Выход:** `heroImage` — картинка как **base64 data URI**. Vercel Blob у нас
+private-only (публичный URL отдать нельзя), а Google при HTML-импорте
+**встраивает** `data:`-картинку прямо в документ (проверено) — поэтому отдельный
+публичный хостинг не нужен.
 
 ---
 
@@ -182,23 +184,23 @@ type ArticleJob = {
 
 ## Шаг 7 — Создать Google Docs в папке
 
-**Вход:** `seo`, `heroImageUrl`, `styledHtml`, целевая папка Drive (folder ID из
-конфига).
+**Вход:** `seo`, `heroImage` (data URI), `styledHtml`, целевая папка Drive
+(folder ID из конфига).
 
 **Логика:** создаём документ в заданной папке и наполняем контентом **в
 порядке**:
 1. `url`
 2. `metaTitle`
 3. `metaDescription`
-4. сгенерированная картинка (`heroImageUrl`)
+4. сгенерированная картинка (`heroImage`)
 5. отформатированный текст (`styledHtml`)
 
 **Решение — HTML-импорт через Drive API:** собираем единый HTML (3 строки меты
-как параграфы + `<img src=heroImageUrl>` + тело из `styledHtml`) и
+как параграфы + `<img src=data:...>` + тело из `styledHtml`) и
 `drive.files.create` с конвертацией в `application/vnd.google-apps.document`.
-Google сам превращает HTML → Doc, переиспользуя наш форматтер; картинку тянет по
-публичному URL (поэтому hero и лежит в блобе). Параметр `parents: [folderId]`
-кладёт документ сразу в нужную папку.
+Google сам превращает HTML → Doc, переиспользуя наш форматтер, и **встраивает**
+`data:`-картинку в документ. Параметр `parents: [folderId]` кладёт документ сразу
+в нужную папку.
 
 > Если на проверке окажется, что конвертация съедает часть стилей или `<img>` —
 > запасной план Б: `documents.batchUpdate` (`insertText` для меты +
