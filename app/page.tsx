@@ -169,7 +169,7 @@ function WorkCard({
       </div>
       {comingSoon ? (
         <div className="flex items-center gap-1 text-sm font-medium text-zinc-400 mt-auto">
-          Скоро
+          Coming soon...
         </div>
       ) : (
         <div className="flex items-center gap-1 text-sm font-medium text-zinc-700 mt-auto">
