@@ -19,7 +19,7 @@ type ArticleResult = {
   url: string;
   metaTitle: string;
   metaDescription: string;
-  heroImage: string;
+  heroImages: { label: string; image: string }[];
 };
 
 type State =
@@ -295,19 +295,33 @@ function ResultCard({
       </div>
 
       <div className="flex flex-col gap-3">
-        {result.heroImage && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={result.heroImage}
-            alt="Hero"
-            className="w-full rounded-xl border border-zinc-200"
-          />
-        )}
         <div className="flex flex-col gap-1 text-sm">
           <Meta label="URL" value={result.url} />
           <Meta label="Meta title" value={result.metaTitle} />
           <Meta label="Meta description" value={result.metaDescription} />
         </div>
+        {result.heroImages?.length > 0 && (
+          <div className="flex flex-col gap-3">
+            <span className="text-xs text-zinc-500">
+              Варианты hero ({result.heroImages.length}) — выбери в документе:
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {result.heroImages.map((h) => (
+                <figure key={h.label} className="flex flex-col gap-1">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={h.image}
+                    alt={h.label}
+                    className="w-full rounded-lg border border-zinc-200"
+                  />
+                  <figcaption className="text-[10px] text-zinc-400 leading-tight">
+                    {h.label}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">

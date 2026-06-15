@@ -3,6 +3,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
 import { downloadBriefText, createArticleDoc } from "./google";
 import { markdownToStyledHtml } from "./md-format";
+import {
+  SEO_SCHEMA,
+  buildSeoUserPrompt,
+  buildHeroImagePrompt,
+  HERO_REF_LABEL,
+  REF_SETS,
+} from "./article-prompts";
 
 // Article generation pipeline (see docs/article-generation-plan.md).
 // 7 steps: fetch ТЗ → write → proofread → SEO+hero prompt → hero image →
@@ -42,7 +49,7 @@ export type ArticleResult = {
   url: string;
   metaTitle: string;
   metaDescription: string;
-  heroImage: string; // base64 data URI
+  heroImages: HeroVariant[]; // one per reference set
 };
 
 const ARTICLE_SYSTEM_PROMPT = `You are a senior SEO content writer. You turn a client brief (ТЗ) into a polished, publication-ready article.
@@ -156,47 +163,15 @@ BRIEF (ТЗ):\n${briefRaw}${keysBlock}\n\nDRAFT:\n${draftMd}`;
 
 // --- Step 4: SEO meta + hero image prompt ---------------------------------
 
-const SEO_SCHEMA = {
-  type: "object",
-  properties: {
-    url: {
-      type: "string",
-      description:
-        "URL slug: lowercase latin, words separated by hyphens, no spaces, transliterated from the title. e.g. 'kak-vybrat-crm'.",
-    },
-    metaTitle: {
-      type: "string",
-      description: "SEO meta title, ≤ 60 chars, in the article's language.",
-    },
-    metaDescription: {
-      type: "string",
-      description: "SEO meta description, 140–160 chars, in the article's language.",
-    },
-    heroPrompt: {
-      type: "string",
-      description:
-        "English image-generation prompt for the hero illustration. The scene MUST include a central character (most likely a robot) and a couple of large planets. Everything else — what the character is doing, the surrounding objects, props and details — MUST reflect and represent THIS article's specific topic. The overall art style MUST be COSMIC / outer-space themed (starfield, nebula, cosmic glow, deep-space atmosphere). Non-realistic, modern, clean illustration. The background MUST be purple/violet. Strictly NO text, letters, words, numbers or logos anywhere in the image.",
-    },
-  },
-  required: ["url", "metaTitle", "metaDescription", "heroPrompt"],
-  additionalProperties: false,
-} as const;
-
 async function generateSeo(
   client: Anthropic,
   finalMd: string,
 ): Promise<ArticleSeo> {
-  const userPrompt = `Based on this finished article, produce: a URL slug, an SEO meta title, an SEO meta description, and a hero-image prompt.
-
-Hero prompt constraints (strict): the scene MUST feature a central character (most likely a robot) and a couple of large planets. Everything else — what the character is doing, the surrounding objects and details — must reflect what THIS specific article is about. The overall art style must be COSMIC / outer-space themed (starfield, nebula, cosmic glow, deep-space atmosphere). Non-realistic style. The background must be purple/violet. No text, letters, words or numbers of any kind in the image.
-
-ARTICLE:\n${finalMd}`;
-
   const response = await client.messages.parse({
     model: OPUS_MODEL,
     max_tokens: 1024,
     output_config: { format: { type: "json_schema", schema: SEO_SCHEMA } },
-    messages: [{ role: "user", content: userPrompt }],
+    messages: [{ role: "user", content: buildSeoUserPrompt(finalMd) }],
   });
 
   const parsed = response.parsed_output as ArticleSeo | null;
@@ -221,30 +196,14 @@ async function fetchImageInline(
   }
 }
 
-/** Returns a base64 data URI — embedded directly in the Doc (no public host needed). */
-async function generateHeroImage(heroPrompt: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-  const ai = new GoogleGenAI({ apiKey });
+type InlineRef = { inlineData: { mimeType: string; data: string } };
+export type HeroVariant = { label: string; image: string };
 
-  const refs = (
-    await Promise.all(HERO_REFERENCES.map((u) => fetchImageInline(u)))
-  ).filter((r): r is NonNullable<typeof r> => r !== null);
-
-  const guidance = refs.length
-    ? ` IMPORTANT: the ${refs.length} attached reference images define the REQUIRED visual style. Closely match their art direction, illustration/rendering technique, shapes, materials, lighting, colour treatment and overall composition. Render the scene described above as a brand-new original image in that exact same style. Do not copy, trace, collage or reproduce any single reference image directly.`
-    : "";
-  const fullPrompt = `${heroPrompt}${guidance} Do not include any text, letters, words, watermarks, or logos in the image.`;
-  // Lead with the instruction, then the style references.
-  const parts = [
-    { text: fullPrompt },
-    ...(refs.length ? [{ text: "Style reference images to match:" }] : []),
-    ...refs,
-  ];
-
-  // Image models get overloaded (503); retry each model twice before failing,
-  // and fall back from Nano Banana Pro to the flash model.
-  let lastError: unknown;
+/** One generation attempt with retry + model fallback. Returns a data URI or null. */
+async function tryGenerateImage(
+  ai: GoogleGenAI,
+  parts: ({ text: string } | InlineRef)[],
+): Promise<string | null> {
   for (const model of IMAGE_MODELS) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
@@ -259,14 +218,46 @@ async function generateHeroImage(heroPrompt: string): Promise<string> {
         // <img width> in buildDocHtml (Google honors it on import).
         const mimeType = imagePart.inlineData.mimeType ?? "image/jpeg";
         return `data:${mimeType};base64,${imagePart.inlineData.data}`;
-      } catch (e) {
-        lastError = e;
+      } catch {
         await new Promise((r) => setTimeout(r, 1500));
       }
     }
   }
-  const msg = lastError instanceof Error ? lastError.message : String(lastError);
-  throw new Error(`Nano Banana не вернул изображение: ${msg}`);
+  return null;
+}
+
+/**
+ * Generate one hero per reference set (REF_SETS) so the doc offers a choice.
+ * Same subject prompt, different reference images. Runs in parallel.
+ */
+async function generateHeroImages(heroSubject: string): Promise<HeroVariant[]> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+  const ai = new GoogleGenAI({ apiKey });
+
+  // Fetch every reference once, index-aligned with HERO_REFERENCES.
+  const allRefs = await Promise.all(HERO_REFERENCES.map((u) => fetchImageInline(u)));
+
+  const variants = await Promise.all(
+    REF_SETS.map(async (set) => {
+      const refs = set.indexes
+        .map((i) => allRefs[i])
+        .filter((r): r is InlineRef => r !== null);
+      const parts = [
+        { text: buildHeroImagePrompt(heroSubject, refs.length) },
+        ...(refs.length ? [{ text: HERO_REF_LABEL }] : []),
+        ...refs,
+      ];
+      const image = await tryGenerateImage(ai, parts);
+      return image ? { label: set.label, image } : null;
+    }),
+  );
+
+  const ok = variants.filter((v): v is HeroVariant => v !== null);
+  if (ok.length === 0) {
+    throw new Error("Nano Banana не вернул ни одного изображения");
+  }
+  return ok;
 }
 
 // --- Step 6 + 7: format and create the Google Doc -------------------------
@@ -282,17 +273,25 @@ const META_P = "font-family:Arial,sans-serif;font-size:11pt;color:#000";
 
 function buildDocHtml(
   seo: ArticleSeo,
-  heroImage: string,
+  heroImages: HeroVariant[],
   finalMd: string,
 ): string {
   const body = markdownToStyledHtml(finalMd); // step 6 — fully inline-styled
   const metaLine = (label: string, value: string) =>
     `<p style="${META_P}"><strong>${label}:</strong> ${escapeHtml(value)}</p>`;
+  const single = heroImages.length === 1;
+  const heroBlock = heroImages
+    .map(
+      (h) =>
+        (single ? "" : `<p style="${META_P}"><strong>${escapeHtml(h.label)}</strong></p>`) +
+        `<p><img src="${h.image}" width="${HERO_WIDTH_PX}" style="width:${HERO_WIDTH_PX}px;max-width:100%;height:auto"></p>`,
+    )
+    .join("");
   const head = [
     metaLine("url", seo.url),
     metaLine("meta title", seo.metaTitle),
     metaLine("meta description", seo.metaDescription),
-    `<p><img src="${heroImage}" width="${HERO_WIDTH_PX}" style="width:${HERO_WIDTH_PX}px;max-width:100%;height:auto"></p>`,
+    heroBlock,
   ].join("");
   // No <style> block: Google Docs' importer would let a stylesheet rule (e.g.
   // `* { color:#000 }`) override our inline cell colors. Pure inline styles
@@ -332,12 +331,12 @@ export async function generateArticle(
   // 4. SEO + hero prompt
   step("seo");
   const seo = await generateSeo(client, finalMd);
-  // 5. hero image
+  // 5. hero images (one per reference set — a choice in the final doc)
   step("image");
-  const heroImage = await generateHeroImage(seo.heroPrompt);
+  const heroImages = await generateHeroImages(seo.heroPrompt);
   // 6 + 7. format + create Google Doc
   step("doc");
-  const html = buildDocHtml(seo, heroImage, finalMd);
+  const html = buildDocHtml(seo, heroImages, finalMd);
   const doc = await createArticleDoc({
     name: seo.metaTitle || seo.url || "Статья",
     html,
@@ -349,6 +348,6 @@ export async function generateArticle(
     url: seo.url,
     metaTitle: seo.metaTitle,
     metaDescription: seo.metaDescription,
-    heroImage,
+    heroImages,
   };
 }
