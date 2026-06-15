@@ -49,7 +49,7 @@ const ARTICLE_SYSTEM_PROMPT = `You are a senior SEO content writer. You turn a c
 
 Hard rules:
 - Follow the brief EXACTLY: required structure (sections/headings), required length, tone, and any explicit instructions take priority over your own preferences.
-- Write in the SAME language as the brief (usually Russian).
+- Write in the SAME language as the brief (usually English).
 - Weave in the required SEO keys naturally — never keyword-stuff, never break readability.
 - Output GitHub-flavored Markdown: a single \`#\` H1 title, \`##\` for sections, \`###\` for sub-sections, normal paragraphs, lists and tables where the brief asks for them.
 - No preamble, no meta-commentary, no "here is the article" — output only the article itself.`;
@@ -175,7 +175,7 @@ const SEO_SCHEMA = {
     heroPrompt: {
       type: "string",
       description:
-        "English image-generation prompt for the hero illustration. It must ABSTRACTLY represent THIS article's topic — a non-literal visual metaphor for the subject matter, tailored to the article. The article's topic should drive the main imagery; space motifs (a robot, planets, comets, rockets) are welcome as OPTIONAL decorative or background accents but are NOT required and should not dominate. Non-realistic, modern, clean illustration. Do NOT mention any colors. Strictly NO text, letters, words, numbers or logos anywhere in the image. Leave clean empty negative space at the bottom of the frame for a title to be overlaid later.",
+        "English image-generation prompt for the hero illustration. It must represent THIS article's topic — a non-literal visual metaphor for the subject matter, tailored to the article. The article's topic should drive the main imagery; space motifs (a robot, planets, comets, rockets) are welcome as OPTIONAL decorative or background accents but are NOT required and should not dominate. Non-realistic, modern, clean illustration. The background MUST be purple/violet. Strictly NO text, letters, words, numbers or logos anywhere in the image.",
     },
   },
   required: ["url", "metaTitle", "metaDescription", "heroPrompt"],
@@ -188,7 +188,7 @@ async function generateSeo(
 ): Promise<ArticleSeo> {
   const userPrompt = `Based on this finished article, produce: a URL slug, an SEO meta title, an SEO meta description, and a hero-image prompt.
 
-Hero prompt constraints (strict): an ABSTRACT, non-literal illustration that represents what THIS specific article is about — pick a visual metaphor that fits the topic, which should drive the main imagery. Space motifs (a robot, planets, comets, rockets) may appear as optional decorative or background accents but must not be required or dominate. Non-realistic style. Do NOT specify any colors. No text, letters, words or numbers of any kind in the image. Keep the bottom of the frame as clean empty space reserved for a title overlay.
+Hero prompt constraints (strict): an non-literal illustration that represents what THIS specific article is about — pick a visual metaphor that fits the topic, which should drive the main imagery. Space motifs (a robot, planets, comets, rockets) may appear as optional decorative or background accents but must not be required or dominate. Non-realistic style. The background must be purple/violet. No text, letters, words or numbers of any kind in the image.
 
 ARTICLE:\n${finalMd}`;
 
