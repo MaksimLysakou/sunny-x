@@ -53,7 +53,7 @@ export function ArticleForm() {
       });
 
       // Non-streamed responses (validation 400 etc.) come back as JSON.
-      if (!res.body || !res.headers.get("content-type")?.includes("ndjson")) {
+      if (!res.body || !res.headers.get("content-type")?.includes("text/event-stream")) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error ?? `HTTP ${res.status}`);
       }
@@ -68,14 +68,20 @@ export function ArticleForm() {
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        let nl: number;
-        while ((nl = buf.indexOf("\n")) >= 0) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (!line) continue;
+        // SSE events are separated by a blank line.
+        let sep: number;
+        while ((sep = buf.indexOf("\n\n")) >= 0) {
+          const rawEvent = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          const data = rawEvent
+            .split("\n")
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).trim())
+            .join("\n");
+          if (!data) continue; // comment/padding event
           let ev: { type: string; step?: string; result?: ArticleResult; error?: string };
           try {
-            ev = JSON.parse(line);
+            ev = JSON.parse(data);
           } catch {
             continue;
           }
