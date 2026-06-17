@@ -9,6 +9,8 @@ import {
   buildHeroImagePrompt,
   HERO_REF_LABEL,
   REF_SETS,
+  HERO_KINDS,
+  type HeroKind,
 } from "./article-prompts";
 import { CLUTCH_REVIEWS, CLUTCH_REVIEWS_URL } from "./clutch-reviews";
 import { CASE_STUDIES } from "./case-studies";
@@ -39,7 +41,7 @@ export type ArticleSeo = {
   url: string;
   metaTitle: string;
   metaDescription: string;
-  heroPrompt: string;
+  hero: Record<HeroKind, string>; // one subject per composition kind
 };
 
 export type ArticleResult = {
@@ -254,29 +256,33 @@ async function tryGenerateImage(
 }
 
 /**
- * Generate one hero per reference set (REF_SETS) so the doc offers a choice.
- * Same subject prompt, different reference images. Runs in parallel.
+ * Generate one hero per composition kind (HERO_KINDS: mascot / objects-only /
+ * people+objects) so the doc offers a choice. Each kind has its own
+ * topic-tailored subject; the same reference images set the STYLE for all
+ * three. Runs in parallel.
  */
-async function generateHeroImages(heroSubject: string): Promise<HeroVariant[]> {
+async function generateHeroImages(
+  hero: Record<HeroKind, string>,
+): Promise<HeroVariant[]> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
   const ai = new GoogleGenAI({ apiKey });
 
-  // Fetch every reference once, index-aligned with HERO_REFERENCES.
+  // Fetch the reference set once (style guidance for every kind).
   const allRefs = await Promise.all(HERO_REFERENCES.map((u) => fetchImageInline(u)));
+  const refs = REF_SETS[0].indexes
+    .map((i) => allRefs[i])
+    .filter((r): r is InlineRef => r !== null);
 
   const variants = await Promise.all(
-    REF_SETS.map(async (set) => {
-      const refs = set.indexes
-        .map((i) => allRefs[i])
-        .filter((r): r is InlineRef => r !== null);
+    HERO_KINDS.map(async ({ key, label }) => {
       const parts = [
-        { text: buildHeroImagePrompt(heroSubject, refs.length) },
+        { text: buildHeroImagePrompt(key, hero[key], refs.length) },
         ...(refs.length ? [{ text: HERO_REF_LABEL }] : []),
         ...refs,
       ];
       const image = await tryGenerateImage(ai, parts);
-      return image ? { label: set.label, image } : null;
+      return image ? { label, image } : null;
     }),
   );
 
@@ -316,7 +322,7 @@ export async function generateArticle(
   const seo = await generateSeo(client, finalMd, briefRaw);
   // 5. hero images (one per reference set — a choice in the final doc)
   step("image");
-  const heroImages = await generateHeroImages(seo.heroPrompt);
+  const heroImages = await generateHeroImages(seo.hero);
   // 6 + 7. build a .docx and let Google convert it (high-fidelity, keeps
   // brand styling — unlike the lossy HTML import).
   step("doc");
