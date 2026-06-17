@@ -10,6 +10,7 @@ import {
   HERO_REF_LABEL,
   REF_SETS,
 } from "./article-prompts";
+import { CLUTCH_REVIEWS, CLUTCH_REVIEWS_URL } from "./clutch-reviews";
 
 // Article generation pipeline (see docs/article-generation-plan.md).
 // 7 steps: fetch ТЗ → write → proofread → SEO+hero prompt → hero image →
@@ -120,6 +121,14 @@ async function fetchCaseStudyCatalog(): Promise<{ url: string; title: string }[]
 }
 
 const WANTS_CASE_STUDIES_RE = /case[\s-]?stud|кейс/i;
+const WANTS_REVIEWS_RE = /review|testimonial|отзыв/i;
+
+function buildReviewsBlock(): string {
+  const list = CLUTCH_REVIEWS.map(
+    (r) => `- "${r.quote}" — ${r.role}, ${r.company} (${r.context})`,
+  ).join("\n");
+  return `\n\nREVIEWS / TESTIMONIALS: The brief asks for reviews/testimonials. Use ONLY the real Fively client reviews below (verified on Clutch). Pick the 1–3 most relevant to THIS article's topic, quote them VERBATIM, and attribute each to its real role and company. You may cite the source as ${CLUTCH_REVIEWS_URL}. NEVER invent reviews, quotes, names, or companies, and never alter a quote's wording.\n\nREAL FIVELY CLUTCH REVIEWS:\n${list}`;
+}
 
 async function writeArticle(
   client: Anthropic,
@@ -143,7 +152,13 @@ async function writeArticle(
     }
   }
 
-  const userPrompt = `Write the article strictly according to this brief (ТЗ). Respect its structure, required length, and incorporate every required SEO key (keys may be inside the brief and/or in the separate list below).\n\nBRIEF (ТЗ):\n${briefRaw}${keysBlock}${caseStudiesBlock}`;
+  // Same principle for reviews: inject the real curated Clutch reviews when the
+  // brief asks for testimonials (Clutch can't be fetched live — Cloudflare).
+  const reviewsBlock = WANTS_REVIEWS_RE.test(`${briefRaw}\n${keysRaw ?? ""}`)
+    ? buildReviewsBlock()
+    : "";
+
+  const userPrompt = `Write the article strictly according to this brief (ТЗ). Respect its structure, required length, and incorporate every required SEO key (keys may be inside the brief and/or in the separate list below).\n\nBRIEF (ТЗ):\n${briefRaw}${keysBlock}${caseStudiesBlock}${reviewsBlock}`;
 
   const response = await client.messages.parse({
     model: OPUS_MODEL,
