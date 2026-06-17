@@ -11,6 +11,7 @@ import {
   REF_SETS,
 } from "./article-prompts";
 import { CLUTCH_REVIEWS, CLUTCH_REVIEWS_URL } from "./clutch-reviews";
+import { CASE_STUDIES } from "./case-studies";
 
 // Article generation pipeline (see docs/article-generation-plan.md).
 // 7 steps: fetch ТЗ → write → proofread → SEO+hero prompt → hero image →
@@ -18,9 +19,6 @@ import { CLUTCH_REVIEWS, CLUTCH_REVIEWS_URL } from "./clutch-reviews";
 // runs them in sequence.
 
 const OPUS_MODEL = "claude-opus-4-8";
-// Fively's case-study catalog — fed to the writer so it can pull real cases
-// (only when the brief asks for them) via the web_fetch tool.
-const CASE_STUDIES_URL = "https://5ly.co/case-studies/";
 // Nano Banana Pro first; fall back to the flash image model if it's overloaded.
 const IMAGE_MODELS = ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"];
 // Hero is embedded full-resolution but DISPLAYED at this px width via <img
@@ -97,31 +95,13 @@ const WRITE_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-/** Pull the real list of {title, url} case studies from Fively's catalog page. */
-async function fetchCaseStudyCatalog(): Promise<{ url: string; title: string }[]> {
-  try {
-    const res = await fetch(CASE_STUDIES_URL);
-    if (!res.ok) return [];
-    const html = await res.text();
-    const seen = new Set<string>();
-    const out: { url: string; title: string }[] = [];
-    const re = /\/case-studies\/([a-z0-9-]+)\//g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(html)) !== null) {
-      const slug = m[1];
-      if (seen.has(slug)) continue;
-      seen.add(slug);
-      const title = slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-      out.push({ url: `https://5ly.co/case-studies/${slug}/`, title });
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
 const WANTS_CASE_STUDIES_RE = /case[\s-]?stud|кейс/i;
 const WANTS_REVIEWS_RE = /review|testimonial|отзыв/i;
+
+function buildCaseStudiesBlock(): string {
+  const list = CASE_STUDIES.map((c) => `- ${c.title}: ${c.url}`).join("\n");
+  return `\n\nCASE STUDIES: The brief asks for case studies. Pick the 1–3 from Fively's REAL case-study catalog below whose topic best matches THIS article, mention each by name, and link to its EXACT URL as a markdown link. NEVER use a case-study URL that is not in this list, and never invent case studies or links.\n\nFIVELY CASE STUDIES (title: url):\n${list}`;
+}
 
 function buildReviewsBlock(): string {
   const list = CLUTCH_REVIEWS.map(
@@ -139,21 +119,13 @@ async function writeArticle(
     ? `\n\nSEO KEYS (separate list — use ALL of them naturally):\n${keysRaw}`
     : "";
 
-  // Only when the brief asks for case studies: fetch the REAL catalog ourselves
-  // and inject the {title, url} list, so the model picks topic-matched real
-  // cases and links them — no invented 404 URLs. (Opus 4.8 won't reliably call
-  // web_fetch under forced JSON output, so we do the fetch instead of the tool.)
-  let caseStudiesBlock = "";
-  if (WANTS_CASE_STUDIES_RE.test(`${briefRaw}\n${keysRaw ?? ""}`)) {
-    const catalog = await fetchCaseStudyCatalog();
-    if (catalog.length > 0) {
-      const list = catalog.map((c) => `- ${c.title}: ${c.url}`).join("\n");
-      caseStudiesBlock = `\n\nCASE STUDIES: The brief asks for case studies. Pick the 1–3 from Fively's REAL case-study catalog below whose topic best matches THIS article, mention each by name, and link to its EXACT URL as a markdown link. NEVER use a case-study URL that is not in this list, and never invent case studies or links.\n\nFIVELY CASE STUDIES (title: url):\n${list}`;
-    }
-  }
-
-  // Same principle for reviews: inject the real curated Clutch reviews when the
-  // brief asks for testimonials (Clutch can't be fetched live — Cloudflare).
+  // Inject our hardcoded real datasets when the brief asks for them, so the
+  // model picks topic-matched real cases/reviews and links them — no invented
+  // 404 URLs or fake quotes. Both are local snapshots (case studies and Clutch
+  // reviews rarely change); re-snapshot the dataset files to refresh.
+  const caseStudiesBlock = WANTS_CASE_STUDIES_RE.test(`${briefRaw}\n${keysRaw ?? ""}`)
+    ? buildCaseStudiesBlock()
+    : "";
   const reviewsBlock = WANTS_REVIEWS_RE.test(`${briefRaw}\n${keysRaw ?? ""}`)
     ? buildReviewsBlock()
     : "";
