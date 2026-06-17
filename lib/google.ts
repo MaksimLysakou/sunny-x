@@ -126,3 +126,36 @@ export async function createArticleDoc(opts: {
     url: res.data.webViewLink ?? `https://docs.google.com/document/d/${id}/edit`,
   };
 }
+
+/**
+ * Upload a .docx buffer and let Google convert it to a Google Doc inside the
+ * folder. DOCX→Doc is far higher fidelity than HTML→Doc — brand styling,
+ * themed tables and the embedded image survive intact.
+ */
+export async function createArticleDocFromDocx(opts: {
+  name: string;
+  docx: Buffer;
+  folderId: string;
+}): Promise<CreatedDoc> {
+  const drive = getDrive();
+  const res = await drive.files.create({
+    requestBody: {
+      name: opts.name,
+      mimeType: "application/vnd.google-apps.document",
+      parents: [opts.folderId],
+    },
+    media: {
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      body: Readable.from([opts.docx]),
+    },
+    fields: "id,webViewLink",
+    supportsAllDrives: true,
+  });
+  const id = res.data.id;
+  if (!id) throw new Error("Drive не вернул id созданного документа");
+  return {
+    id,
+    url: res.data.webViewLink ?? `https://docs.google.com/document/d/${id}/edit`,
+  };
+}

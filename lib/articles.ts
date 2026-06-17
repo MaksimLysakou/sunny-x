@@ -1,8 +1,8 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
-import { downloadBriefText, createArticleDoc } from "./google";
-import { markdownToStyledHtml } from "./md-format";
+import { downloadBriefText, createArticleDocFromDocx } from "./google";
+import { buildArticleDocx } from "./md-docx";
 import {
   SEO_SCHEMA,
   buildSeoUserPrompt,
@@ -21,10 +21,6 @@ import { CASE_STUDIES } from "./case-studies";
 const OPUS_MODEL = "claude-opus-4-8";
 // Nano Banana Pro first; fall back to the flash image model if it's overloaded.
 const IMAGE_MODELS = ["gemini-3-pro-image-preview", "gemini-2.5-flash-image"];
-// Hero is embedded full-resolution but DISPLAYED at this px width via <img
-// width> (Google honors it on import) so it fits the page content column
-// (~6.3in on a default A4/Letter doc) instead of overflowing.
-const HERO_WIDTH_PX = 600;
 
 // 10 reference image URLs for the hero (style + composition guidance).
 // Set ARTICLE_HERO_REFERENCES as a comma/newline-separated list; empty is OK
@@ -246,8 +242,7 @@ async function tryGenerateImage(
         const out = response.candidates?.[0]?.content?.parts ?? [];
         const imagePart = out.find((p) => p.inlineData?.data);
         if (!imagePart?.inlineData?.data) throw new Error("empty image response");
-        // Keep the full-resolution image; display size is constrained by the
-        // <img width> in buildDocHtml (Google honors it on import).
+        // Keep the full-resolution image; the docx builder sizes it to the page.
         const mimeType = imagePart.inlineData.mimeType ?? "image/jpeg";
         return `data:${mimeType};base64,${imagePart.inlineData.data}`;
       } catch {
@@ -292,50 +287,6 @@ async function generateHeroImages(heroSubject: string): Promise<HeroVariant[]> {
   return ok;
 }
 
-// --- Step 6 + 7: format and create the Google Doc -------------------------
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-const META_P = "font-family:Arial,sans-serif;font-size:11pt;color:#000";
-
-function buildDocHtml(
-  seo: ArticleSeo,
-  heroImages: HeroVariant[],
-  finalMd: string,
-): string {
-  const body = markdownToStyledHtml(finalMd); // step 6 — fully inline-styled
-  const metaLine = (label: string, value: string) =>
-    `<p style="${META_P}"><strong>${label}:</strong> ${escapeHtml(value)}</p>`;
-  const single = heroImages.length === 1;
-  const heroBlock = heroImages
-    .map(
-      (h) =>
-        (single ? "" : `<p style="${META_P}"><strong>${escapeHtml(h.label)}</strong></p>`) +
-        `<p><img src="${h.image}" width="${HERO_WIDTH_PX}" style="width:${HERO_WIDTH_PX}px;max-width:100%;height:auto"></p>`,
-    )
-    .join("");
-  const head = [
-    metaLine("url", seo.url),
-    metaLine("meta title", seo.metaTitle),
-    metaLine("meta description", seo.metaDescription),
-    heroBlock,
-  ].join("");
-  // No <style> block: Google Docs' importer would let a stylesheet rule (e.g.
-  // `* { color:#000 }`) override our inline cell colors. Pure inline styles
-  // import faithfully.
-  return [
-    "<!DOCTYPE html>",
-    '<html><head><meta charset="utf-8"></head><body>',
-    `${head}${body}`,
-    "</body></html>",
-  ].join("");
-}
-
 // --- Orchestrator ----------------------------------------------------------
 
 export async function generateArticle(
@@ -366,12 +317,19 @@ export async function generateArticle(
   // 5. hero images (one per reference set — a choice in the final doc)
   step("image");
   const heroImages = await generateHeroImages(seo.heroPrompt);
-  // 6 + 7. format + create Google Doc
+  // 6 + 7. build a .docx and let Google convert it (high-fidelity, keeps
+  // brand styling — unlike the lossy HTML import).
   step("doc");
-  const html = buildDocHtml(seo, heroImages, finalMd);
-  const doc = await createArticleDoc({
+  const docx = await buildArticleDocx({
+    url: seo.url,
+    metaTitle: seo.metaTitle,
+    metaDescription: seo.metaDescription,
+    heroImages,
+    markdown: finalMd,
+  });
+  const doc = await createArticleDocFromDocx({
     name: seo.metaTitle || seo.url || "Статья",
-    html,
+    docx,
     folderId,
   });
 
