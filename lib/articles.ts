@@ -56,6 +56,7 @@ const ARTICLE_SYSTEM_PROMPT = `You are a senior SEO content writer. You turn a c
 
 Hard rules:
 - Follow the brief EXACTLY: required structure (sections/headings), required length, tone, and any explicit instructions take priority over your own preferences.
+- EXAMPLES IN THE BRIEF ARE ILLUSTRATIVE ONLY. Any sample sentences, example copy, demo paragraphs, placeholder text or sample wording in the ТЗ are there to show intent, tone and format — NEVER copy them word-for-word or near-verbatim. Always write fresh, original content in your own words; treat every example strictly as guidance, not as text to reuse.
 - Write in the SAME language as the brief (usually English).
 - Weave in the required SEO keys naturally — never keyword-stuff, never break readability.
 - Output GitHub-flavored Markdown: a single \`#\` H1 title, \`##\` for sections, \`###\` for sub-sections, normal paragraphs, lists and tables where the brief asks for them.
@@ -137,6 +138,7 @@ async function proofreadArticle(
 2. Keys: the first draft almost always under-uses the required keys — add the MISSING ones from the full list, woven in naturally. Do not keyword-stuff.
 3. Length: verify it matches the length required by the brief; expand or trim to hit it.
 4. Keep the required structure intact.
+5. No copied examples: find any sentence or phrase that was lifted word-for-word (or nearly) from the brief's example/sample copy and REWRITE it in fresh, original wording. Examples in the brief are illustrative only.
 
 Return the corrected full article as Markdown.
 
