@@ -197,12 +197,13 @@ BRIEF (ТЗ):\n${briefRaw}${keysBlock}\n\nDRAFT:\n${draftMd}`;
 async function generateSeo(
   client: Anthropic,
   finalMd: string,
+  briefRaw: string,
 ): Promise<ArticleSeo> {
   const response = await client.messages.parse({
     model: OPUS_MODEL,
     max_tokens: 1024,
     output_config: { format: { type: "json_schema", schema: SEO_SCHEMA } },
-    messages: [{ role: "user", content: buildSeoUserPrompt(finalMd) }],
+    messages: [{ role: "user", content: buildSeoUserPrompt(finalMd, briefRaw) }],
   });
 
   const parsed = response.parsed_output as ArticleSeo | null;
@@ -361,7 +362,7 @@ export async function generateArticle(
   const finalMd = await proofreadArticle(client, draftMd, briefRaw, keysRaw);
   // 4. SEO + hero prompt
   step("seo");
-  const seo = await generateSeo(client, finalMd);
+  const seo = await generateSeo(client, finalMd, briefRaw);
   // 5. hero images (one per reference set — a choice in the final doc)
   step("image");
   const heroImages = await generateHeroImages(seo.heroPrompt);

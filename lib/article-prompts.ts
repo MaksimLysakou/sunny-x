@@ -21,15 +21,17 @@ export const SEO_SCHEMA = {
     url: {
       type: "string",
       description:
-        "URL slug: lowercase latin, words separated by hyphens, no spaces, transliterated from the title. e.g. 'kak-vybrat-crm'.",
+        "URL slug. If the brief (ТЗ) specifies a URL/slug, use it EXACTLY. Otherwise: lowercase latin, words separated by hyphens, no spaces, transliterated from the title. e.g. 'kak-vybrat-crm'.",
     },
     metaTitle: {
       type: "string",
-      description: "SEO meta title, ≤ 60 chars, in the article's language.",
+      description:
+        "SEO meta title. Follow the brief (ТЗ) FIRST: if it gives an exact meta title, use it verbatim; if it specifies required keywords, length, or a title formula, follow them. Only fall back to deriving from the article when the brief says nothing. Default length ≤ 60 chars, in the article's language.",
     },
     metaDescription: {
       type: "string",
-      description: "SEO meta description, 140–160 chars, in the article's language.",
+      description:
+        "SEO meta description. Follow the brief (ТЗ) FIRST: if it gives an exact meta description, use it verbatim; if it specifies required keywords or length, follow them. Only fall back to deriving from the article when the brief says nothing. Default length 140–160 chars, in the article's language.",
     },
     heroPrompt: {
       type: "string",
@@ -41,10 +43,14 @@ export const SEO_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-export function buildSeoUserPrompt(finalMd: string): string {
-  return `Based on this finished article, produce: a URL slug, an SEO meta title, an SEO meta description, and a hero-image subject description.
+export function buildSeoUserPrompt(finalMd: string, briefRaw: string): string {
+  return `Produce: a URL slug, an SEO meta title, an SEO meta description, and a hero-image subject description.
+
+The URL, meta title and meta description MUST follow the brief (ТЗ) first — if the brief specifies an exact URL/title/description, required keywords, or length limits, obey them; only derive from the article when the brief is silent. The hero-image subject is based on the article's topic.
 
 The hero image always shows a cute robot mascot in a fixed house style; your job is ONLY to choose just 2–4 KEY topic-specific objects the robot interacts with so the image fits THIS article — the few most iconic items, meant to be drawn LARGE and bold (not a long list of tiny icons). Do NOT mention art style, colours, medium, the robot, planets or background — those are fixed. NO people or humans. No text, letters, words or numbers in the image.
+
+BRIEF (ТЗ):\n${briefRaw}
 
 ARTICLE:\n${finalMd}`;
 }
